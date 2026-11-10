@@ -270,12 +270,14 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, log=pr
             log(f"registry saved: {push(pg, db_path, briefs_dir())} bytes")   # before anything else can go wrong
 
         if run and settle and left() > 240:      # settle what has resolved, score it, and learn from it
-            try:
-                from . import cli
-                cli.resolve(set_=[], at=None, learn=True, seed=0, watch=False, every=600, forever=False)
-                log(f"registry saved: {push(pg, db_path, briefs_dir())} bytes")
-            except Exception as e:
-                log(f"settling failed: {type(e).__name__}: {str(e)[:300]}")
+            from . import cli
+            for name, step in (("settling", lambda: cli.resolve(set_=[], at=None, learn=False, seed=0, watch=False, every=600, forever=False)),
+                               ("learning", lambda: cli.learn_cmd(seed=0))):
+                try:                             # outcomes are saved even if learning from them then fails
+                    step()
+                    log(f"{name} done; registry saved: {push(pg, db_path, briefs_dir())} bytes")
+                except Exception as e:
+                    log(f"{name} failed: {type(e).__name__}: {str(e)[:300]}")
         if run:
             out["published"] = publish(pg, log)
         return out
