@@ -34,7 +34,7 @@ export async function POST(request) {
     else if (body.action === 'retry') state = await retry(body.id);
     else if (body.action === 'run') {
       const now = await readState(null, true);
-      if (!now.queued.some(q => q.id === body.id && q.kind === 'k' && !q.running)) return fail('bad');
+      if (!now.queued.some(q => q.id === body.id && !q.running)) return fail('bad');
       const got = await runNow(body.id);
       if (got !== 'started') return fail(got === 'busy' ? 'busy' : got === 'cap' ? 'runcap' : got === 'gone' ? 'bad' : 'engine', got === 'engine' ? 502 : 409);
       state = now;

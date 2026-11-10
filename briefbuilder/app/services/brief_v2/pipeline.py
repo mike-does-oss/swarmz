@@ -17,7 +17,7 @@ from .retriever import retrieve, is_live
 from .triage import triage
 from .claim_extractor import ClaimExtractionError, reading_problem
 from .assembler import assemble
-from .scrubber import scrub
+from .scrubber import scrub, Removal
 from ..orderbook_snapshot import snapshot_order_book
 from .stage_llm import assembler_llm, scrubber_llm, warn_if_same_model
 from .brave_client import BraveSearchClient
@@ -134,6 +134,16 @@ class BriefPipeline:
         if scrub_result.degraded:
             return self._reject('scrubber_degraded', now)
         cleaned = scrub_result.cleaned_brief
+        # The scrubber is a model and sometimes leaves a stray mention. Throwing the whole brief away over one
+        # line wastes what it cost to build, so drop the lines that still mention odds and check again; the
+        # brief is refused only if that does not clear it.
+        if find_odds_contamination(cleaned):
+            kept = [ln for ln in cleaned.split('\n') if not find_odds_contamination(ln)]
+            dropped = cleaned.count('\n') + 1 - len(kept)
+            logger.warning(f"dropped {dropped} line(s) that still mentioned odds after the scrub")
+            scrub_result.removals.extend(Removal(quoted_text=ln[:300], rule='residual odds term', action='line dropped by the odds check')
+                                         for ln in cleaned.split('\n') if find_odds_contamination(ln))
+            cleaned = '\n'.join(kept)
         contamination = find_odds_contamination(cleaned)
         if contamination:
             logger.error(f"residual odds contamination, refusing freeze: {contamination[:3]}")

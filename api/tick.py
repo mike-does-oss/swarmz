@@ -26,7 +26,7 @@ class handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         dry = query.get("dry") == ["1"]
         only = (query.get("ticker") or [None])[0]       # run this queued market, not the oldest one
-        if only is not None and not (len(only) <= 64 and re.fullmatch(r"[A-Z0-9]{2,}(-[A-Z0-9.]+){1,4}", only)):
+        if only is not None and not (len(only) <= 64 and re.fullmatch(r"[A-Z0-9]{2,}(-[A-Z0-9.]+){1,4}|q-[0-9a-f]{14}", only)):
             return self._send(400, {"error": "bad ticker"})
         lines = []
 

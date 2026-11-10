@@ -234,15 +234,16 @@ def finished(con) -> set[str]:
         "SELECT DISTINCT question_id FROM runs WHERE arm = 'PANEL' AND status = 'complete'").fetchall()}
 
 
-def freeze(con, ticker: str, log=print) -> str | None:
-    """Brief the market and register it. Returns why it could not, or None."""
+def freeze(con, ticker: str, log=print, own: dict | None = None) -> str | None:
+    """Brief the market and register it. Returns why it could not, or None. ``own`` is an own question's
+    text, resolves date and criteria: it has no Kalshi market, so no market price, tags or automatic outcome."""
     import sqlite3
     from . import cli, picker, usage
     from .registry import store
 
     if store.get_question(con, ticker):
         return None
-    result, tracker = picker.build_brief(ticker, min_words=int(os.environ.get("SWARMZ_QUEUE_MIN_BRIEF_WORDS", "800")))
+    result, tracker = picker.build_brief(ticker, min_words=int(os.environ.get("SWARMZ_QUEUE_MIN_BRIEF_WORDS", "800")), own=own)
     cost = usage.save(con, tracker, context="brief", question_id=ticker)
     log(f"brief {ticker}: {result.get('status')}, {result.get('word_count')} words, ${cost:.4f}")
     if result.get("status") != "frozen":
@@ -250,18 +251,25 @@ def freeze(con, ticker: str, log=print) -> str | None:
     src = sqlite3.connect(picker.BRIEF_LOG)
     src.row_factory = sqlite3.Row
     row = src.execute("SELECT * FROM predictions WHERE question_id = ?", [ticker]).fetchone()
+    if own and row is not None:
+        path = Path(picker.BRIEFS_DIR) / f"{row['brief_hash']}.md"
+        if not path.exists():
+            return "brief frozen but its file is missing"
+        store.add_question(con, question_id=ticker, question_text=own["text"], resolution_criteria=own["criteria"],
+                           category="other", freeze_ts=row["freeze_ts"], brief_path=path, source="manual")
+        return None
     if row is None or not cli._import_brief_row(con, row, picker.BRIEFS_DIR):
         return "brief frozen but not imported"
     return None
 
 
-def run_market(ticker: str, log=print) -> str | None:
-    """Brief, single call and panel for one Kalshi ticker. Returns why it failed, or None."""
+def run_market(ticker: str, log=print, own: dict | None = None) -> str | None:
+    """Brief, single call and panel for one Kalshi ticker or one own question. Returns why it failed, or None."""
     from . import cli
     from .registry.db import connect
     try:
         con = connect()
-        why = freeze(con, ticker, log)
+        why = freeze(con, ticker, log, own)
         con.close()
         if why:
             return why
@@ -275,8 +283,8 @@ def run_market(ticker: str, log=print) -> str | None:
 
 
 def next_queued(pg, done: set[str]) -> tuple[str | None, int]:
-    """The oldest queued Kalshi ticker, and how many more wait behind it. Marks rows the registry already finished."""
-    rows = pg.execute("select id from queue where status = 'queued' and kind = 'k' order by at").fetchall()
+    """The oldest queued market or question, and how many more wait behind it. Marks rows the registry already finished."""
+    rows = pg.execute("select id from queue where status = 'queued' order by at").fetchall()
     ids = [r[0] for r in rows]
     for t in [t for t in ids if t in done]:
         pg.execute("update queue set status = 'done', note = null where id = %s", [t])
@@ -314,7 +322,7 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
 
         ticker, waiting = next_queued(pg, done)
         if only:
-            ok = pg.execute("select 1 from queue where id = %s and status = 'queued' and kind = 'k'", [only]).fetchone()
+            ok = pg.execute("select 1 from queue where id = %s and status = 'queued'", [only]).fetchone()
             if not ok or only in done:
                 log(f"{only} is not waiting in the queue")
             ticker, waiting = (only, max(0, waiting)) if ok and only not in done else (None, 0)
@@ -328,7 +336,9 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
             log(f"daily cap of {cap} reached; {ticker} waits")
         else:
             log(f"running {ticker} ({waiting} more waiting)")
-            title = pg.execute("update queue set status = 'running', ran_at = now(), note = null where id = %s returning text", [ticker]).fetchone()
+            title = pg.execute("update queue set status = 'running', ran_at = now(), note = null where id = %s "
+                               "returning text, kind, resolves, criteria", [ticker]).fetchone()
+            own = {"text": title[0], "resolves": title[2], "criteria": title[3]} if title and title[1] == "q" else None
             from . import progress
             live = None
             try:                                 # showing the run on the site is optional; the run is not
@@ -337,7 +347,7 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
             except Exception as e:
                 log(f"live view unavailable: {type(e).__name__}: {str(e)[:200]}")
             try:
-                why = run_market(ticker, log)
+                why = run_market(ticker, log, own)
             finally:
                 progress.set_sink(None)
             try:

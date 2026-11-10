@@ -90,11 +90,17 @@ def test_build_rejects_when_scrubber_degraded(tmp_path):
     assert result.status == "rejected" and result.reject_reason == "scrubber_degraded"
 
 
-def test_build_rejects_on_residual_odds(tmp_path):
+def test_a_line_that_still_mentions_odds_is_dropped_and_the_rest_is_kept(tmp_path):
+    dirty = "The vote passed on Tuesday, Reuters reports.\nBetting odds put it at 2/1 currently across books.\nThe ministry confirmed the count."
+    result = _pipeline(tmp_path, FakeScrubberLLM(cleaned=dirty)).build(dict(MARKET), now=NOW)
+    assert result.status == "frozen"
+    assert "odds" not in result.brief_text and "Reuters reports" in result.brief_text and "ministry confirmed" in result.brief_text
+
+
+def test_a_brief_that_is_nothing_but_odds_is_still_refused(tmp_path):
     dirty = "The vote result. Betting odds put it at 2/1 currently across books."
-    p = _pipeline(tmp_path, FakeScrubberLLM(cleaned=dirty))
-    result = p.build(MARKET, now=NOW)
-    assert result.status == "rejected" and result.reject_reason == "residual_odds_contamination"
+    result = _pipeline(tmp_path, FakeScrubberLLM(cleaned=dirty)).build(dict(MARKET), now=NOW)
+    assert result.status == "rejected" and result.reject_reason.startswith("word_count_out_of_range")
 
 
 def test_build_rejects_on_word_count_out_of_range(tmp_path):

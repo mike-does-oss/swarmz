@@ -88,3 +88,36 @@ def test_live_run_follows_a_run_in_the_shape_the_site_replays():
     live.close(None)
     assert (pg.saved[-1]["active"], pg.saved[-1]["stage"]) == (False, "done")
     assert [d["rev"] for d in pg.saved] == list(range(1, len(pg.saved) + 1))
+
+
+def test_an_own_question_is_registered_from_its_brief_with_no_market(tmp_path, monkeypatch):
+    import sqlite3
+    from swarmz import picker, usage
+    from swarmz.registry import store
+    from swarmz.registry.db import connect
+
+    briefs = tmp_path / "briefs_v2"
+    briefs.mkdir()
+    (briefs / "abc123.md").write_text("a frozen brief about the question")
+    log = tmp_path / "shoals.db"
+    src = sqlite3.connect(log)
+    src.execute("create table predictions (question_id text, brief_hash text, freeze_ts text)")
+    src.execute("insert into predictions values ('q-0123456789abcd', 'abc123', '2026-11-10T12:00:00Z')")
+    src.commit()
+    monkeypatch.setattr(picker, "BRIEF_LOG", log)
+    monkeypatch.setattr(picker, "BRIEFS_DIR", briefs)
+    asked = {}
+
+    def build_brief(ticker, min_words=None, own=None):
+        asked.update(ticker=ticker, own=own)
+        return {"status": "frozen", "word_count": 6}, usage.Tracker()
+    monkeypatch.setattr(picker, "build_brief", build_brief)
+
+    con = connect(":memory:")
+    own = {"text": "Will it happen by spring?", "resolves": "2027-03-01", "criteria": "The ministry says so in writing."}
+    assert cloud.freeze(con, "q-0123456789abcd", log=lambda m: None, own=own) is None
+    assert asked == {"ticker": "q-0123456789abcd", "own": own}
+    q = store.get_question(con, "q-0123456789abcd")
+    assert (q["question_text"], q["resolution_criteria"], q["source"], q["market_prob"]) == \
+        ("Will it happen by spring?", "The ministry says so in writing.", "manual", None)
+    assert store.read_brief(q) == b"a frozen brief about the question"

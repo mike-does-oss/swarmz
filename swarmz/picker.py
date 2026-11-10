@@ -268,8 +268,10 @@ def market_prob_at(ticker: str, ts, session=requests, lookback_hours: float = 6)
     return None
 
 
-def build_brief(ticker: str, timeout: float = 1800, min_words: int | None = None) -> tuple[dict, usage.Tracker]:
-    """Freeze a brief for one ticker. Returns (result, usage tracker for the brief build)."""
+def build_brief(ticker: str, timeout: float = 1800, min_words: int | None = None,
+                own: dict | None = None) -> tuple[dict, usage.Tracker]:
+    """Freeze a brief for one ticker, or for an own question (``own``: its text, resolves date and criteria, with
+    ``ticker`` as its ID). Returns (result, usage tracker for the brief build)."""
     if not BRIEF_BUILDER_PYTHON.exists():
         raise FileNotFoundError(f"brief builder Python not found at {BRIEF_BUILDER_PYTHON} (set BRIEF_BUILDER_PYTHON)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -277,6 +279,9 @@ def build_brief(ticker: str, timeout: float = 1800, min_words: int | None = None
         env = builder_env()
         hook = usage.subprocess_env(usage_file, stage="brief")
         env.update({**hook, "PYTHONPATH": hook["PYTHONPATH"].split(os.pathsep)[0] + os.pathsep + env["PYTHONPATH"]})
+        env.pop("BRIEF_OWN_QUESTION", None)
+        if own:
+            env["BRIEF_OWN_QUESTION"] = json.dumps({k: own[k] for k in ("text", "resolves", "criteria")})
         cmd = [str(BRIEF_BUILDER_PYTHON), str(BUILD_SCRIPT), ticker] + ([str(min_words)] if min_words else [])
         proc = subprocess.run(cmd, cwd=BRIEF_BUILDER_DIR, env=env,
                               capture_output=True, text=True, timeout=timeout)
