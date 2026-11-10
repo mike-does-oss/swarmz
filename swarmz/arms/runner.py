@@ -18,8 +18,6 @@ brief_sha256). Each run writes one forecast row per agent and one aggregate row 
 from __future__ import annotations
 
 import json
-
-import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -89,11 +87,6 @@ class RunOutcome:
     error: str | None = None
     cost_usd: float | None = None
     spread: dict | None = None
-
-
-def graph_name(question_id: str, arm: str, run_id: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9_]", "_", question_id)
-    return f"q_{safe}__{arm}__{run_id}"
 
 
 def run_arm(con, question_id: str, arm: str, *, llm: LLM | None = None,
@@ -237,7 +230,6 @@ def _swarm(con, spec, q, question, brief, run_id, llm, swarm, seed, workers):
         priors = {f.persona_id: f for f in alone}
     req = SwarmRequest(
         question_id=q["question_id"], question=question, brief_text=brief, freeze_ts=q["freeze_ts"],
-        graph_name=graph_name(q["question_id"], spec.name, run_id),
         personas=[PersonaSpec(
             p["persona_id"], prof, p.get("display_name") or "", p.get("handle") or "",
             prior_prob=priors[p["persona_id"]].prob if priors else None,
@@ -290,8 +282,6 @@ def _agent_context(a) -> str:
         parts.append(a.discussion)
     elif a.posts:  # a swarm runner that returns no thread: at least the agent's own posts
         parts.append("What you posted:\n" + "\n".join(f"- {p}" for p in a.posts[-15:]))
-    if a.memory_context:
-        parts.append(f"What you remember:\n{a.memory_context}")
     return "\n\n".join(parts)
 
 

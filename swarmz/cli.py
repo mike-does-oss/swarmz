@@ -1,4 +1,4 @@
-"""swarmz CLI: health, personas, questions, run, resolve, learn, evolve, report, backtest, graphs."""
+"""swarmz CLI: health, personas, questions, run, resolve, learn, evolve, report, backtest."""
 
 from __future__ import annotations
 
@@ -19,10 +19,8 @@ from .timeutil import now, utc
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="swarmz: a local forecasting swarm that learns from resolved questions.")
 personas_app = typer.Typer(no_args_is_help=True, help="Persona registry.")
 questions_app = typer.Typer(no_args_is_help=True, help="Questions and frozen briefs.")
-graphs_app = typer.Typer(no_args_is_help=True, help="Per-question FalkorDB graphs.")
 app.add_typer(personas_app, name="personas")
 app.add_typer(questions_app, name="questions")
-app.add_typer(graphs_app, name="graphs")
 console = Console()
 
 
@@ -422,30 +420,6 @@ def backtest(file: Path = typer.Argument(..., exists=True), arms: str = "A0,PANE
     for qid, why in rep.refused.items():
         console.print(f"[yellow]refused[/] {qid}: {why}")
     console.print(f"{len(rep.runs)} runs, {len(rep.refused)} refused")
-
-
-# ------------------------------------------------------------------ graphs
-
-@graphs_app.command("list")
-def graphs_list():
-    from .memory.falkor import list_graphs
-    for g in list_graphs():
-        console.print(g)
-
-
-@graphs_app.command("cleanup")
-def graphs_cleanup(prefix: str = typer.Option("q_", help="Delete graphs whose name starts with this"),
-                   yes: bool = typer.Option(False, "--yes")):
-    """Delete per-question graphs (they are reproducible from the run config)."""
-    from .memory.falkor import delete_graph, list_graphs
-    targets = [g for g in list_graphs() if g.startswith(prefix)]
-    if not targets:
-        console.print("nothing to delete"); return
-    if not yes:
-        typer.confirm(f"Delete {len(targets)} graphs?", abort=True)
-    for g in targets:
-        delete_graph(g)
-    console.print(f"deleted {len(targets)} graphs")
 
 
 if __name__ == "__main__":

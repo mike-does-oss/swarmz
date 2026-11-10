@@ -222,7 +222,7 @@ def cost_by_arm(con) -> list[dict]:
 
 
 def cost_by_stage(con, arm: str | None = None) -> list[dict]:
-    """Where the money goes: per arm and stage (setup, simulation, memory, elicit, report, ...)."""
+    """Where the money goes: per arm and stage (elicit, discussion, learning, brief, ...)."""
     where, params = "WHERE context = 'run'", []
     if arm:
         where += " AND arm = ?"; params.append(arm)

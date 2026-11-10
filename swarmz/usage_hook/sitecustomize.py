@@ -1,7 +1,7 @@
-"""Loaded automatically by the OASIS subprocess when this directory is on PYTHONPATH.
+"""Loaded automatically by a child Python (the brief builder) when this directory is on PYTHONPATH.
 
 Appends one JSON line per Anthropic/OpenAI call to $SWARMZ_USAGE_FILE; the
-bridge reads the file after the simulation and adds it to the run's usage.
+parent reads the file afterwards and adds it to its usage (swarmz.usage.merge_file).
 """
 
 import json
@@ -9,7 +9,7 @@ import os
 import threading
 
 _path = os.environ.get("SWARMZ_USAGE_FILE")
-_stage = os.environ.get("SWARMZ_USAGE_STAGE", "simulation")
+_stage = os.environ.get("SWARMZ_USAGE_STAGE", "brief")
 
 if _path:
     try:
@@ -23,5 +23,5 @@ if _path:
                 f.write(json.dumps(rec) + "\n")
 
         install(_sink)
-    except Exception:  # never break the simulation over usage capture
+    except Exception:  # never break the child over usage capture
         pass

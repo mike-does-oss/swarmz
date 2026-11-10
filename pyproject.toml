@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "swarmz: local forecasting swarm with persistent personas, scoring, selection, calibration and lessons"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "graphiti-core[falkordb,anthropic]>=0.31",
     "duckdb>=1.1",
     "pydantic>=2.7",
     "typer>=0.12",
@@ -12,20 +11,9 @@ dependencies = [
     "pyyaml>=6",
     "numpy>=1.26",
     "anthropic>=0.49",
-    "openai>=1.40",
     "python-dotenv>=1.0",
     "requests>=2.31",
     "httpx>=0.27",
-]
-
-[project.optional-dependencies]
-lite = ["graphiti-core[falkordblite]>=0.31"]
-mirofish = [
-    "chardet>=5.0",
-    "charset-normalizer>=3.0",
-    "flask>=3.0",
-    "flask-cors>=6.0",
-    "pymupdf>=1.24",
 ]
 
 [project.scripts]
@@ -34,13 +22,6 @@ swarmz = "swarmz.cli:app"
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "pytest-asyncio>=0.23",
-    "graphiti-core[falkordblite]>=0.31",
-    "flask>=3.0",
-    "flask-cors>=6.0",
-    "pymupdf>=1.24",
-    "charset-normalizer>=3.0",
-    "chardet>=5.0",
 ]
 
 [build-system]
@@ -52,5 +33,5 @@ packages = ["swarmz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: needs live API keys or a running FalkorDB"]
+markers = ["integration: needs live API keys"]
 addopts = "-m 'not integration'"

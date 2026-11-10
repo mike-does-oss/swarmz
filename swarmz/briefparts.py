@@ -1,4 +1,4 @@
-"""Parts of a frozen brief: its sections, the digest a simulated agent carries, and the slices
+"""Parts of a frozen brief: its sections, a digest of its deciding facts, and the slices
 handed out when agents are each given part of the research.
 
 A brief has fixed headings (QUANTITATIVE ANCHORS, CONFIRMED FACTS, ...). Nothing here adds to
@@ -11,7 +11,7 @@ import re
 
 _HEADING = re.compile(r"^#+[ \t]*(.+?)[ \t]*$", re.M)
 
-# What a simulated agent carries into the discussion, most useful first. A question about a price
+# What the digest holds, most useful first. A question about a price
 # or a statistic has its answer-deciding facts under QUANTITATIVE ANCHORS. A question about an
 # event or a decision (an election, a vote, a ruling) often has almost nothing there: its state
 # of play is under CONFIRMED FACTS and RECENT TIMELINE. So the digest draws on all three.

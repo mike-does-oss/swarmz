@@ -4,7 +4,7 @@
         ... any Anthropic / OpenAI SDK calls, in any thread ...
     usage.save(con, u, context="run", run_id=..., question_id=..., arm=...)
 
-The OASIS simulation runs in a separate Python; ``subprocess_env`` puts a
+The brief builder runs in a separate Python (swarmz.picker); ``subprocess_env`` puts a
 ``sitecustomize`` hook on its PYTHONPATH that appends calls to a JSONL file,
 and ``merge_file`` adds that file to the active tracker afterwards.
 """
@@ -118,27 +118,11 @@ def cost(model: str, counts: dict) -> float | None:
 
 # --------------------------------------------------------------- subprocess
 
-def subprocess_env(usage_file: Path, stage: str = "simulation") -> dict:
+def subprocess_env(usage_file: Path, stage: str = "brief") -> dict:
     """Env vars that make a child Python log its SDK calls to ``usage_file`` under ``stage``."""
     pp = os.environ.get("PYTHONPATH", "")
     return {"SWARMZ_USAGE_FILE": str(usage_file), "SWARMZ_USAGE_STAGE": stage,
             "PYTHONPATH": str(HOOK_DIR) + (os.pathsep + pp if pp else "")}
-
-
-@contextmanager
-def child_env(usage_file: Path, stage: str = "simulation"):
-    """Temporarily set ``subprocess_env`` in os.environ (children copy it at spawn)."""
-    new = subprocess_env(usage_file, stage)
-    old = {k: os.environ.get(k) for k in new}
-    os.environ.update(new)
-    try:
-        yield
-    finally:
-        for k, v in old.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
 
 
 def merge_file(path: Path) -> int:

@@ -6,8 +6,6 @@ from pathlib import Path
 
 import pytest
 
-os.environ.setdefault("GRAPHITI_TELEMETRY_ENABLED", "false")
-
 from swarmz.bridge import SwarmAgent, SwarmResult
 from swarmz.config import settings
 from swarmz.registry import store
@@ -42,9 +40,6 @@ class FakeLLM:
             return {"lessons": list(self.lessons)}
         if system.startswith("You consolidate"):
             return {"lessons": ["Weigh base rates before case-specific evidence."]}
-        if system.startswith("You rewrite the opening posts"):
-            posts = user.split("POSTS:\n\n")[1].split("\n\n")
-            return {"posts": [{"i": i, "content": f"[revoiced] {p.split('Original: ')[1]}"} for i, p in enumerate(posts)]}
         if system.startswith("You edit forecaster persona"):
             parent = user.split("PARENT PERSONA:\n")[1].split("\n\nVARIATION")[0]
             var = user.split("VARIATION: ")[1].split("\n")[0]
@@ -56,7 +51,7 @@ def fake_swarm(req):
     agents = [SwarmAgent(i, p.persona_id, p.profile, posts=[f"post by {p.persona_id}"],
                          discussion="[Post 1] Wary Lynx: the committee is data dependent")
               for i, p in enumerate(req.personas)]
-    return SwarmResult(agents=agents, native_prob=0.4, graph_name=req.graph_name)
+    return SwarmResult(agents=agents, native_prob=0.4)
 
 
 @pytest.fixture

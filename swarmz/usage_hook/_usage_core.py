@@ -2,13 +2,13 @@
 
 This file is imported two ways:
   * in-process as ``swarmz.usage_hook._usage_core`` (Python 3.12), and
-  * inside the OASIS subprocess (Python 3.11, no swarmz installed) through
+  * inside the brief builder's subprocess (its own Python, no swarmz installed) through
     ``sitecustomize.py`` in this same directory, which sits on PYTHONPATH.
 So it must not import anything from swarmz.
 
 ``install(sink)`` wraps the SDK methods that return a ``usage`` object; each
-call becomes one record dict passed to ``sink``. The stage (memory, setup,
-elicit, ...) is read from the calling stack, which works across threads and
+call becomes one record dict passed to ``sink``. The stage (elicit,
+discussion, learning, ...) is read from the calling stack, which works across threads and
 asyncio tasks.
 """
 
@@ -24,20 +24,9 @@ _installed: set = set()
 
 # innermost matching caller module wins
 STAGES = [
-    ("graphiti_core", "memory"),
-    ("swarmz.memory", "memory"),
-    ("app.memory_compat", "memory"),
-    ("app.services.prediction.graph_from_text", "memory"),
-    ("app.services.prediction", "report"),
-    ("app.services.report_agent", "report"),
-    ("app.services.zep_tools", "report"),
-    ("app.services", "setup"),
     ("swarmz.capture", "elicit"),
     ("swarmz.panel", "discussion"),
-    ("swarmz.seedposts", "setup"),
     ("swarmz.learning", "learning"),
-    ("camel", "simulation"),
-    ("oasis", "simulation"),
 ]
 
 

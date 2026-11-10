@@ -71,7 +71,7 @@ class Panel:
                              discussion="[Post 1] Wary Lynx: NO, 30%: two holdouts remain.",
                              public_prob=(55 + i) / 100)
                   for i, p in enumerate(req.personas)]
-        return SwarmResult(agents=agents, native_prob=0.9, graph_name=req.graph_name)
+        return SwarmResult(agents=agents, native_prob=0.9)
 
 
 def test_members_forecast_alone_first_and_open_with_that_number(con, llm):
@@ -111,7 +111,7 @@ def test_members_forecast_alone_first_and_open_with_that_number(con, llm):
 
 def _request(n=3, rounds=2, priors=True):
     return SwarmRequest(
-        question_id="Q1", question="Will it happen?", brief_text="the whole brief", freeze_ts=T0, graph_name="g",
+        question_id="Q1", question="Will it happen?", brief_text="the whole brief", freeze_ts=T0,
         personas=[PersonaSpec(f"p{i}", f"persona {i}", f"Name {i}", prior_prob=0.2 + 0.3 * i if priors else None,
                               prior_rationale=f"reason {i}" if priors else "", reading=f"slice {i}")
                   for i in range(n)],
@@ -218,7 +218,7 @@ def test_a_full_panel_run_uses_no_stand_in(con, llm):
 def test_a_quiet_panel_has_no_public_number():
     def quiet(req):
         return SwarmResult(agents=[SwarmAgent(i, p.persona_id, p.profile) for i, p in enumerate(req.personas)],
-                           native_prob=None, graph_name=req.graph_name)
+                           native_prob=None)
     from swarmz.registry.db import connect
     con = connect(":memory:")
     from tests.conftest import FakeLLM

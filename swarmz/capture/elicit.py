@@ -1,7 +1,6 @@
 """Per-agent final probability elicitation.
 
-MiroFish exposes stances (yes/no/uncertain + confidence), not probabilities, so
-every agent is asked directly at the end of a run. Output is validated with
+Every agent is asked directly for a probability. Output is validated with
 Pydantic and retried once on invalid output.
 """
 

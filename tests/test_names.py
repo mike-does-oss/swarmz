@@ -1,10 +1,7 @@
-"""Persona pseudonyms (stable, unique, flow into the swarm) and seed-post re-voicing."""
-
-import json
+"""Persona pseudonyms: stable, unique, and carried into the panel."""
 
 from swarmz.registry import store
 from swarmz.registry.names import ensure_names, pseudonym
-from swarmz.seedposts import rewrite_seed_posts
 
 
 def test_pseudonym_is_deterministic_unique_and_ascii_handle():
@@ -49,29 +46,3 @@ def test_swarm_request_carries_names(con, llm, monkeypatch):
     assert len(names) == 6 and all(names) and len(set(names)) == 6
     assert all(p.handle for p in seen["personas"])
 
-
-def test_rewrite_seed_posts_keeps_facts_and_marks_original(tmp_path, llm):
-    cfg = {"event_config": {"initial_posts": [
-        {"content": "Lamar Jackson needs thumb surgery.", "poster_type": "TeamAccount", "poster_agent_id": 0},
-        {"content": "Jaguars won 42-7.", "poster_type": "SportsMedia", "poster_agent_id": 2}]}}
-    (tmp_path / "simulation_config.json").write_text(json.dumps(cfg))
-    n = rewrite_seed_posts(str(tmp_path), {0: ("Adaeze Okafor", "You are a statistician."),
-                                           2: ("Jonas Varga", "You are a journalist.")},
-                           llm, "claude-haiku-5-5", question="Ravens win?")
-    assert n == 2
-    posts = json.loads((tmp_path / "simulation_config.json").read_text())["event_config"]["initial_posts"]
-    assert posts[0]["content"] == "[revoiced] Lamar Jackson needs thumb surgery."
-    assert posts[0]["original_content"] == "Lamar Jackson needs thumb surgery."
-    assert posts[1]["poster_type"] == "Forecaster" and posts[1]["poster_agent_id"] == 2
-
-
-def test_rewrite_seed_posts_survives_llm_failure(tmp_path):
-    cfg = {"event_config": {"initial_posts": [{"content": "x", "poster_agent_id": 0}]}}
-    (tmp_path / "simulation_config.json").write_text(json.dumps(cfg))
-
-    class Broken:
-        def json(self, *a, **k):
-            raise RuntimeError("boom")
-
-    assert rewrite_seed_posts(str(tmp_path), {0: ("A", "p")}, Broken(), "m") == 0
-    assert json.loads((tmp_path / "simulation_config.json").read_text())["event_config"]["initial_posts"][0]["content"] == "x"

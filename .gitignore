@@ -6,8 +6,6 @@ data/
 backups/
 reports/*.md
 !reports/.gitkeep
-vendor/mirofish/uploads/
-vendor/mirofish/logs/
 .DS_Store
 logs/
 .superpowers/

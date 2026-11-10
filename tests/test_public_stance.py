@@ -1,11 +1,7 @@
-"""Agents in the simulation are told the question, the brief's deciding facts and to take a side
-in every post; registry agents also open with the forecast they made alone."""
+"""The digest of a brief's deciding facts, and how a panel member's number is written in a post."""
 
-import json
-
-from swarmz.bridge import PersonaSpec
 from swarmz.briefparts import digest
-from swarmz.mirofish_bridge import commit_in_public, public_prob, stated
+from swarmz.panel import stated
 
 BRIEF = """## QUESTION & RESOLUTION CRITERIA
 Will the Nasdaq-100 close above 27,899.99 on Nov 10, 2026?
@@ -57,53 +53,5 @@ def test_digest_of_a_question_without_numbers_carries_the_state_of_play():
         assert said in d
 
 
-def test_every_agent_is_told_the_question_the_facts_and_to_take_a_side(tmp_path):
-    # 2026-11-10: agents saw only their persona and the feed, never the question. At most 2 of 20
-    # said YES or NO in public and the vote share was empty on all six questions.
-    path = tmp_path / "reddit_profiles.json"
-    path.write_text(json.dumps([{"user_id": 0, "persona": "You are a statistician."},
-                                {"user_id": 1, "persona": "You are a trader."}]))
-    assert commit_in_public(str(tmp_path), "Will the Nasdaq-100 close above 27,899.99?", BRIEF) == 2
-    first, second = json.loads(path.read_text())
-    assert first["persona_plain"] == "You are a statistician."        # kept for the private forecast
-    assert first["persona"].startswith("You are a statistician.\n\nTHE QUESTION THIS PANEL IS FORECASTING")
-    for said in ("Will the Nasdaq-100 close above 27,899.99?", "closed at 27,907.63", "Begin it with YES or NO"):
-        assert said in first["persona"] and said in second["persona"]
-    assert "YOUR FORECAST BEFORE" not in first["persona"] and "YOUR JOB" not in first["persona"]
-
-    commit_in_public(str(tmp_path), "Will the Nasdaq-100 close above 27,899.99?", BRIEF)   # told twice: said once
-    again = json.loads(path.read_text())[0]
-    assert again["persona"] == first["persona"] and again["persona_plain"] == "You are a statistician."
-
-
-def test_an_agent_opens_with_its_own_forecast_and_may_hold_its_own_reading_and_a_job(tmp_path):
-    path = tmp_path / "reddit_profiles.json"
-    path.write_text(json.dumps([{"user_id": 0, "persona": "A."}, {"user_id": 1, "persona": "B."}]))
-    seats = {0: PersonaSpec("p0", "A.", prior_prob=0.3, prior_rationale="Two  holdouts\nremain."),
-             1: PersonaSpec("p1", "B.", prior_prob=0.72, prior_rationale="",
-                            reading="## RECENT TIMELINE\n- November 9: cloture filed.", role="Attack the leading view.")}
-    commit_in_public(str(tmp_path), "Will the Senate confirm?", VOTE, seats=seats)
-    a, b = (p["persona"] for p in json.loads(path.read_text()))
-    assert "committed to this: NO, 30%. Your reason: Two holdouts remain." in a
-    assert "Your first post states this number." in a
-    assert "KEY FACTS FROM THE PANEL'S RESEARCH BRIEF" in a and "Two senators" in a and "YOUR JOB" not in a
-    assert "committed to this: YES, 72%." in b
-    assert "WHAT YOU HAVE READ" in b and "cloture filed" in b and "Two senators" not in b   # only its own part
-    assert "YOUR JOB ON THIS PANEL\nAttack the leading view." in b and "not your number" in b
-    assert a.index("YOUR FORECAST BEFORE") < a.index("HOW YOU POST")
-
-
-def test_the_number_an_agent_last_posted_is_read_back():
+def test_a_probability_is_posted_with_its_side():
     assert stated(0.3) == "NO, 30%" and stated(0.655) == "YES, 66%"
-    assert public_prob(["YES, 52%: the close was above the strike.", "NO, 45%: futures fell overnight."]) == 0.45
-    assert public_prob(["I agree with Lynx.", "yes 61.5% now"]) == 0.615
-    assert public_prob(["Rates are at 3.5% and nobody said yes or no."]) is None
-    assert public_prob([]) is None
-
-
-def test_a_brief_without_sections_still_gets_the_question_and_a_missing_file_is_not_fatal(tmp_path):
-    assert commit_in_public(str(tmp_path), "Q?", "no sections") == 0
-    (tmp_path / "reddit_profiles.json").write_text(json.dumps([{"user_id": 0, "persona": "P."}]))
-    assert commit_in_public(str(tmp_path), "Will it rain?", "no sections") == 1
-    persona = json.loads((tmp_path / "reddit_profiles.json").read_text())[0]["persona"]
-    assert "Will it rain?" in persona and "KEY FACTS" not in persona

@@ -150,5 +150,5 @@ def run(req: SwarmRequest, *, llm: LLM, workers: int = 8) -> SwarmResult:
             posts=[f"{stated(e['prob'])}. {e['text']}" for e in mine],
             discussion=render(thread, p.persona_id),
             public_prob=mine[-1]["prob"] if mine else None))
-    return SwarmResult(agents=agents, native_prob=None, graph_name="",
+    return SwarmResult(agents=agents, native_prob=None,
                        meta={"runner": "panel", "rounds": rounds, "silent": silent, "thread": thread})

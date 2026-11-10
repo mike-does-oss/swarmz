@@ -162,11 +162,10 @@ the `calibrated` aggregate fits the same multiplier by itself once 50 questions 
 
 ## What was removed
 
-Until 2026-11-10 the swarm arms (A1, A2, A2E, A5) ran a MiroFish social-network simulation with a
-FalkorDB/Graphiti graph as its memory. No arm uses either now. Runs of those arms stay in the registry
-as history. The code is still on disk and nothing imports it on the run path: `vendor/mirofish`,
-`swarmz/mirofish_bridge.py`, `swarmz/memory/`, `swarmz/seedposts.py`, `swarmz/discussion.py`,
-`docker-compose.yml`, the `swarmz graphs` commands and their tests. The personas of the old populations
+Until 2026-11-10 the swarm arms (A1, A2, A2E, A5) ran a simulated social network with a graph
+database as its memory. That code and its dependencies have been deleted; the panel's own discussion
+(`swarmz/panel.py`) replaced it. Runs of those arms stay in the registry as history, and their usage
+rows keep the old stage names (setup, simulation, memory, report). The personas of the old populations
 (job titles such as "a regulatory lawyer") are still in the registry under A2 and A3; the panel does not
 use them.
 

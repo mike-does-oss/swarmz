@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
-os.environ.setdefault("GRAPHITI_TELEMETRY_ENABLED", "false")
 
 
 @dataclass
@@ -24,10 +23,8 @@ class Settings:
     mutate_model: str
     lesson_model: str
     population_size: int
-    max_rounds: int          # legacy: rounds of a MiroFish simulation
     discussion_rounds: int = 5   # rounds the panel talks after the opening forecasts
     challengers: int = 2         # members per question told to argue against the leading view
-    agent_graph_memory: bool = False  # also write each agent's actions into the graph (costly)
     learning: dict = field(default_factory=dict)
     training_cutoffs: dict = field(default_factory=dict)
 
@@ -48,10 +45,8 @@ def settings() -> Settings:
         mutate_model=os.environ.get("SWARMZ_MUTATE_MODEL", "claude-sonnet-5-5"),
         lesson_model=os.environ.get("SWARMZ_LESSON_MODEL", default_model),
         population_size=int(os.environ.get("SWARMZ_POPULATION_SIZE", "10")),
-        max_rounds=int(os.environ.get("SWARMZ_MAX_ROUNDS", "10")),
         discussion_rounds=int(os.environ.get("SWARMZ_DISCUSSION_ROUNDS", "5")),
         challengers=int(os.environ.get("SWARMZ_CHALLENGERS", "2")),
-        agent_graph_memory=os.environ.get("SWARMZ_AGENT_GRAPH_MEMORY", "").lower() in ("1", "true", "yes"),
         learning=_yaml("learning.yaml"),
         training_cutoffs={k: str(v) for k, v in (_yaml("models.yaml").get("training_cutoffs") or {}).items()},
     )

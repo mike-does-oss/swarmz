@@ -9,6 +9,3 @@ models:
   claude-opus-5-5:   {input: 4.00, output: 20.00, cache_read: 0.20, cache_write: 5.00}
   claude-haiku-4-5:  {input: 1.00, output: 5.00, cache_read: 0.10, cache_write: 1.25}
   claude-sonnet-5:   {input: 2.00, output: 10.00, cache_read: 0.20, cache_write: 2.50}   # brief builder assembler/scrubber
-  # OpenAI embeddings (Graphiti). Check https://openai.com/api/pricing if this changes.
-  text-embedding-3-small: {input: 0.02, output: 0.0, cache_read: 0.0, cache_write: 0.0}
-  text-embedding-3-large: {input: 0.13, output: 0.0, cache_read: 0.0, cache_write: 0.0}

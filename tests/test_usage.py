@@ -48,13 +48,13 @@ def test_wrap_records_tokens_stage_and_host():
                      "cache_read_tokens": 50, "cache_write_tokens": 10}]
 
 
-def test_async_wrap_and_graphiti_stage():
+def test_async_wrap_and_stage():
     recs = []
     e = FakeAsyncEmbeddings()
     wrapped = core.wrap(FakeAsyncEmbeddings.create, "openai", "embedding", recs.append)
-    _call_as("graphiti_core.embedder.openai",
+    _call_as("swarmz.learning.lessons",
              lambda **kw: asyncio.run(wrapped(e, **kw)), model="text-embedding-3-small")
-    assert recs[0]["stage"] == "memory" and recs[0]["input_tokens"] == 300 and recs[0]["output_tokens"] == 0
+    assert recs[0]["stage"] == "learning" and recs[0]["input_tokens"] == 300 and recs[0]["output_tokens"] == 0
 
 
 def test_nested_wrapped_calls_count_once():
@@ -81,10 +81,10 @@ def test_cost_uses_pricing_table():
 
 def test_tracker_save_and_report(con):
     t = usage.Tracker()
-    for stage in ("elicit", "elicit", "memory"):
+    for stage in ("elicit", "elicit", "discussion"):
         t.add({"stage": stage, "provider": "anthropic", "host": "api.anthropic.com", "model": "claude-haiku-5-5",
                "input_tokens": 1_000_000, "output_tokens": 0})
-    t.add({"stage": "memory", "provider": "openai", "host": "api.openai.com", "model": "mystery-embedder",
+    t.add({"stage": "brief", "provider": "openai", "host": "api.openai.com", "model": "mystery-embedder",
            "input_tokens": 10})
     # no runs row needed: the report LEFT JOINs runs
     total = usage.save(con, t, context="run", run_id="r1", question_id="q1", arm="A2")
@@ -102,23 +102,23 @@ def test_track_only_collects_inside_block():
     assert [r["input_tokens"] for r in t.rows()] == [5]
 
 
-def test_merge_file_and_child_env(tmp_path):
+def test_merge_file_and_subprocess_env(tmp_path):
     f = tmp_path / "usage.jsonl"
-    f.write_text(json.dumps({"stage": "simulation", "provider": "openai", "host": "api.anthropic.com",
+    f.write_text(json.dumps({"stage": "brief", "provider": "openai", "host": "api.anthropic.com",
                              "model": "claude-haiku-5-5", "calls": 1, "input_tokens": 100,
                              "output_tokens": 10}) + "\nnot json\n")
     with usage.track() as t:
         assert usage.merge_file(f) == 1
         assert usage.merge_file(tmp_path / "missing.jsonl") == 0
-    assert t.rows()[0]["stage"] == "simulation"
-    before = os.environ.get("PYTHONPATH")
-    with usage.child_env(f):
-        assert os.environ["SWARMZ_USAGE_FILE"] == str(f)
-        assert os.environ["PYTHONPATH"].split(os.pathsep)[0] == str(usage.HOOK_DIR)
-    assert os.environ.get("PYTHONPATH") == before and "SWARMZ_USAGE_FILE" not in os.environ
+    assert t.rows()[0]["stage"] == "brief"
+    env = usage.subprocess_env(f)
+    assert env["SWARMZ_USAGE_FILE"] == str(f) and env["SWARMZ_USAGE_STAGE"] == "brief"
+    assert env["PYTHONPATH"].split(os.pathsep)[0] == str(usage.HOOK_DIR)
 
 
-SIM_PY = os.environ.get("MIROFISH_SIM_PYTHON") or str(Path.home() / "Desktop/projects/shoals-new/backend/.venv/bin/python")
+from swarmz.picker import BRIEF_BUILDER_PYTHON
+
+CHILD_PY = str(BRIEF_BUILDER_PYTHON)   # the hook itself is stdlib only; the child script needs the openai SDK
 
 CHILD = r"""
 import asyncio, httpx, openai
@@ -139,15 +139,15 @@ asyncio.run(ac.chat.completions.create(model="claude-haiku-5-5", messages=[{"rol
 """
 
 
-@pytest.mark.skipif(not Path(SIM_PY).exists(), reason="simulation Python (MIROFISH_SIM_PYTHON) not available")
+@pytest.mark.skipif(not Path(CHILD_PY).exists(), reason="brief builder Python (BRIEF_BUILDER_PYTHON) not available")
 def test_subprocess_hook_logs_calls(tmp_path):
     f = tmp_path / "usage.jsonl"
     env = {**os.environ, **usage.subprocess_env(f)}
-    subprocess.run([SIM_PY, "-c", CHILD], env=env, check=True, timeout=120, cwd=tmp_path)
+    subprocess.run([CHILD_PY, "-c", CHILD], env=env, check=True, timeout=120, cwd=tmp_path)
     recs = [json.loads(line) for line in f.read_text().splitlines()]
-    assert len(recs) == 2, recs   # one sync call, one async call (the way camel's agents call)
+    assert len(recs) == 2, recs   # one sync call, one async call
     for rec in recs:
-        assert rec["stage"] == "simulation" and rec["input_tokens"] == 120 and rec["output_tokens"] == 7
+        assert rec["stage"] == "brief" and rec["input_tokens"] == 120 and rec["output_tokens"] == 7
         assert rec["host"] == "api.anthropic.com" and rec["model"] == "claude-haiku-5-5"
 
 
@@ -163,10 +163,10 @@ def test_decorated_async_methods_are_recorded_after_await():
         return _real(self, **kw)
 
     wrapped = core.wrap(decorated, "anthropic", "chat", recs.append)
-    out = _call_as("graphiti_core.llm_client.anthropic_client",
+    out = _call_as("swarmz.panel",
                    lambda **kw: asyncio.run(wrapped(m, **kw)), model="claude-haiku-5-5")
     assert out.model == "claude-haiku-5-5"
-    assert len(recs) == 1 and recs[0]["stage"] == "memory" and recs[0]["input_tokens"] == 1000
+    assert len(recs) == 1 and recs[0]["stage"] == "discussion" and recs[0]["input_tokens"] == 1000
 
 
 def test_reprice_fills_missing_costs(con):

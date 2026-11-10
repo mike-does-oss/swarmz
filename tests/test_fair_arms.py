@@ -70,17 +70,3 @@ def test_run_on_a_resolved_question_is_late_at_once(con, llm):
     assert dict(con.execute("SELECT run_id, status FROM runs").fetchall()) == {out.run_id: "late"}
     assert rows(con, "SELECT 1 FROM scores") == []
 
-
-def test_every_round_is_live_for_every_agent(tmp_path):
-    import json
-
-    from swarmz.mirofish_bridge import every_round_live
-    cfg = {"time_config": {"peak_hours": [19, 20], "off_peak_hours": [1, 2, 3], "agents_per_hour_min": 6},
-           "agent_configs": [{"agent_id": 0, "active_hours": [9, 10], "activity_level": 0.6},
-                             {"agent_id": 1, "active_hours": list(range(24)), "activity_level": 0.2}]}
-    (tmp_path / "simulation_config.json").write_text(json.dumps(cfg))
-    assert every_round_live(str(tmp_path)) == 1
-    out = json.loads((tmp_path / "simulation_config.json").read_text())
-    assert all(c["active_hours"] == list(range(24)) for c in out["agent_configs"])
-    assert out["time_config"]["off_peak_hours"] == [] and out["time_config"]["peak_hours"] == []
-    assert out["agent_configs"][0]["activity_level"] == 0.6 and out["time_config"]["agents_per_hour_min"] == 6
