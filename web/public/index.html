@@ -367,6 +367,7 @@
   .state.bad { --sc: var(--no); } .ov td.why small { display: block; margin-top: 4px; color: var(--dim); max-width: 46ch; overflow-wrap: anywhere; white-space: normal; }
   .admbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
   .legal { flex: none; margin: 0; color: var(--faint); font-size: 10.5px; line-height: 1.45; text-align: center; text-wrap: balance; }
+  .app { width: 100%; max-width: 1440px; margin-inline: auto; box-sizing: border-box; }   /* on a wide screen the page keeps to the middle */
   .app.adm .bar { border-color: color-mix(in srgb, #e8b84a 55%, var(--line)); }
   .app.adm .bar .chip { background: #e8b84a; }
   @media (max-width: 880px) { .tabs { flex: 1 1 100%; flex-wrap: wrap; order: 4; } }
