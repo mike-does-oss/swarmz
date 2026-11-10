@@ -4,11 +4,11 @@
 
 Public JSON on stdout: finished panel runs (for the tables and the replay), scores, agents. It carries no
 dollar figures. Costs go to the file named in argv[1], which only the signed-in admin API serves."""
-import json, re, statistics, sys
+import json, os, re, statistics, sys
 from datetime import datetime, timezone
 import duckdb
 
-con = duckdb.connect("data/swarmz.duckdb", read_only=True)
+con = duckdb.connect(os.environ.get("SWARMZ_DB_PATH", "data/swarmz.duckdb"), read_only=True)
 
 
 def rows(sql, args=()):

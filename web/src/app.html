@@ -364,6 +364,7 @@
   .submit.login { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; box-shadow: none; padding-top: 0; }
   .submit.login .btn { grid-column: 1 / -1; }
   .ov > .msg { padding: 0 2px; flex-basis: auto; }
+  .state.bad { --sc: var(--no); } .ov td.why small { display: block; margin-top: 4px; color: var(--dim); max-width: 46ch; overflow-wrap: anywhere; white-space: normal; }
   .admbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
   .legal { flex: none; margin: 0; color: var(--faint); font-size: 10.5px; line-height: 1.45; text-align: center; text-wrap: balance; }
   .app.adm .bar { border-color: color-mix(in srgb, #e8b84a 55%, var(--line)); }
@@ -529,17 +530,17 @@ function derive() {                                        // these rows were wr
     const e = !r ? null : okTicker(r.id) ? { id: r.id, kind: 'k' } : own(r);
     if (!e || e.id !== r.id || FINISHED.has(e.id) || seen.has(e.id)) return null;
     seen.add(e.id);
-    return { ...e, at: stamp(r.at), n: Number.isInteger(r.n) && r.n > 0 ? r.n : 1, mine: r.mine === true };
+    return { ...e, at: stamp(r.at), n: Number.isInteger(r.n) && r.n > 0 ? r.n : 1, mine: r.mine === true, running: r.running === true, note: typeof r.note === 'string' ? r.note.slice(0, 400) : '' };
   }).filter(Boolean).sort(byAt);
-  const queued = clean(s.queued), rejected = clean(s.rejected), submitted = clean(s.submitted);
-  return { queued, rejected, submitted, mine: submitted.filter(x => x.mine) };
+  const queued = clean(s.queued), rejected = clean(s.rejected), failed = clean(s.failed), submitted = clean(s.submitted);
+  return { queued, rejected, failed, submitted, mine: submitted.filter(x => x.mine) };
 }
 const liveNote = () => live.state === 'on' ? null : live.state === 'loading' ? 'Loading' : 'Could not load';
 let paint = null;                                          // set by the open view; fills in whatever depends on the API
 function paintLive() { if (paint) paint(derive()); }
 function note(text, cls) { live.msg = { text, cls: cls || '' }; showMsg(''); }
 function showMsg(idle) { const m = $('#msg'); if (!m) return; m.className = 'msg ' + (live.msg ? live.msg.cls : ''); m.textContent = live.msg ? live.msg.text : idle; }
-const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', declined: 'That one was declined.', dup: 'You already submitted that.',
+const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', done: 'That one already has a finished run.', declined: 'That one was declined.', dup: 'You already submitted that.',
   cap: `You have ${MAX_MINE} submissions waiting for approval. Withdraw one first.`, rate: 'Too many submissions from this network today. Try again tomorrow.', full: 'The list is full for now. Try again later.',
   login: 'Wrong email or password.', locked: 'Too many attempts. Try again in 15 minutes.', auth: 'You are signed out. Sign in again.' };
 async function call(body) {
@@ -601,6 +602,7 @@ async function submitForm(f) {
 }
 const withdraw = id => { const e = derive().mine.find(i => i.id === id); if (e) write({ action: 'withdraw', id }, Cap(e) + ' withdrawn.'); };
 const decide = (e, status) => { if (e) write({ action: status === 'queued' ? 'approve' : 'decline', id: e.id }, Cap(e) + (status === 'queued' ? ' queued.' : ' declined.')); };
+const retry = id => { if (okId(id)) write({ action: 'retry', id }, (okTicker(id) ? id : 'Question') + ' queued again.'); };
 const undecide = id => { if (okId(id)) write({ action: 'remove', id }, (okTicker(id) ? id : 'Question') + ' removed.'); };
 async function queueForm(f) {
   const e = fromForm(f); if (!e) return;
@@ -620,8 +622,8 @@ const what = (e, full) => { const yours = e.mine && !full ? '<span class="flag">
     : `<td class="qc own"${full ? '' : ` tabindex="0" data-tip="${esc('Resolves YES if\n' + e.criteria)}"`}>${esc(e.text)}${yours}${full ? `<small class="rule">YES if ${esc(e.criteria)}</small>` : ''}<small>resolves ${esc(e.resolves)}${full ? `<span class="qid">${esc(e.id)}</span>` : ''}</small></td>`; };
 const kindCell = e => `<td class="nw">${e.kind === 'q' ? 'Own question' : 'Kalshi'}</td>`;
 const EVERY = 2 * 3600 * 1000;                             // queued Kalshi markets run one per slot, oldest first
-function slots(queued) { const m = new Map(); let t = Math.ceil(Date.now() / EVERY) * EVERY; for (const q of queued) if (q.kind === 'k') { m.set(q.id, new Date(t).toISOString()); t += EVERY; } return m; }
-const slotCell = (q, sl) => q.kind === 'k' ? `<td class="nw">${when(sl.get(q.id))}</td>` : '<td class="nw dimc">needs a brief</td>';
+function slots(queued) { const m = new Map(); let t = Math.ceil(Date.now() / EVERY) * EVERY; for (const q of queued) if (q.kind === 'k' && !q.running) { m.set(q.id, new Date(t).toISOString()); t += EVERY; } return m; }
+const slotCell = (q, sl) => q.running ? '<td class="nw">now</td>' : q.kind === 'k' ? `<td class="nw">${when(sl.get(q.id))}</td>` : '<td class="nw dimc">needs a brief</td>';
 
 // ---------- overview: finished, queued and submitted runs ----------
 function mountOverview() {
@@ -664,7 +666,7 @@ function mountOverview() {
     const wait = liveNote(), can = live.state === 'on';
     $('#t-que').textContent = wait ? '–' : d.queued.length; $('#t-sub').textContent = wait ? '–' : d.submitted.length;
     const sl = slots(d.queued), rows = [
-      ...d.queued.map(q => `<tr>${what(q)}${kindCell(q)}<td><span class="state que">queued</span></td><td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="n dimc">–</td><td class="act"></td></tr>`),
+      ...d.queued.map(q => `<tr>${what(q)}${kindCell(q)}<td><span class="state que">${q.running ? 'running' : 'queued'}</span></td><td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="n dimc">–</td><td class="act"></td></tr>`),
       ...d.submitted.map(s => `<tr>${what(s)}${kindCell(s)}<td><span class="state wait">awaiting approval</span></td><td class="nw">${when(s.at)}</td><td class="nw dimc">–</td><td class="n">${s.n}</td>
         <td class="act">${s.mine ? `<button class="btn" data-act="withdraw" data-id="${esc(s.id)}"${live.busy ? ' disabled' : ''}>Withdraw</button>` : ''}</td></tr>`)];
     $('#b-pend').innerHTML = wait ? emptyRow(7, wait) : rows.join('') || emptyRow(7, 'Nothing queued or submitted');
@@ -711,15 +713,15 @@ function mountAdmin() {
     <p class="msg" id="msg" role="status"></p>
     <div class="admbody" id="adm-body" hidden>
       <div class="admbar"><span id="adm-who"></span><button class="btn" data-act="logout">Sign out</button></div>
-      <section class="tiles four">${tile('a-sub', 'Awaiting approval', '–', 'Submissions you have not decided on.', 'a-n-sub')}${tile('a-que', 'Queued', '–', TIP.queued, 'a-n-que')}${tile('a-rej', 'Declined', '–', 'Submissions you declined.', 'a-n-rej')}${tile('a-cost', 'Cost per finished run', '–', 'Mean measured cost of a finished run, with its brief and single call.', 'a-n-cost')}</section>
+      <section class="tiles four">${tile('a-sub', 'Awaiting approval', '–', 'Submissions you have not decided on.', 'a-n-sub')}${tile('a-que', 'Queued', '–', TIP.queued, 'a-n-que')}${tile('a-rej', 'Declined or failed', '–', 'Submissions you declined, and queued markets whose run failed.', 'a-n-rej')}${tile('a-cost', 'Cost per finished run', '–', 'Mean measured cost of a finished run, with its brief and single call.', 'a-n-cost')}</section>
       <section class="card a-sub"><header>${head('Awaiting approval', 'What people submitted. Approve one to queue it, or decline it.')}</header>
         <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Submitted, UTC</th>${th('Requests', 'How many people asked for this.', 'n')}<th></th></tr></thead><tbody id="a-sub"></tbody></table></div></section>
       <div class="cols">
-        <section class="card a-que"><header>${head('Queue', 'Approved markets and questions, oldest first. The oldest Kalshi market is run every two hours. An own question waits for a brief written by hand.')}</header>
+        <section class="card a-que"><header>${head('Queue', 'Approved markets and questions, oldest first. The oldest Kalshi market is run every two hours, on the even hours UTC. An own question waits for a brief written by hand.')}</header>
           ${formHtml('queue', 'qf', 'Add', 'Queue a market or a question directly, without a submission.', 'Add to queue')}
           <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Approved, UTC</th>${th('Runs, UTC', TIP.slot)}<th></th></tr></thead><tbody id="a-que"></tbody></table></div></section>
-        <section class="card a-rej"><header>${head('Declined', 'Submissions you declined. Undo puts one back for a fresh decision.')}</header>
-          <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Declined, UTC</th><th></th></tr></thead><tbody id="a-rej"></tbody></table></div></section>
+        <section class="card a-rej"><header>${head('Declined and failed', 'Submissions you declined, and queued markets whose run failed, with the reason. Retry puts a failed one back in the queue. Undo puts a declined one back for a fresh decision.')}</header>
+          <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>What happened</th><th></th></tr></thead><tbody id="a-rej"></tbody></table></div></section>
       </div>
       <section class="card a-cost"><header>${head('Costs', 'Measured cost of each finished run at list prices: its brief, its single call, and the panel\'s forecasts and discussion.')}</header>
         <div class="scroll"><table><thead><tr><th>Run</th><th>Finished, UTC</th><th>Share</th><th class="n">Brief</th><th class="n">Single call</th><th class="n">Panel forecasts</th><th class="n">Panel discussion</th><th class="n">Total</th><th class="n">Calls</th><th class="n">Tokens read</th></tr></thead><tbody id="a-cost"></tbody></table></div></section>
@@ -736,12 +738,14 @@ function mountAdmin() {
     if (!signed) { $('#adm-gate-text').textContent = live.state === 'loading' ? 'Checking access' : live.state === 'failed' ? 'Could not reach the server. Reload the page to try again.' : 'Sign in to open the admin view.'; $('#adm-login').hidden = live.state !== 'on'; return; }
     $('#adm-who').textContent = live.user || '';
     const wait = null;
-    $('#a-n-sub').textContent = wait ? '–' : d.submitted.length; $('#a-n-que').textContent = wait ? '–' : d.queued.length; $('#a-n-rej').textContent = wait ? '–' : d.rejected.length;
+    $('#a-n-sub').textContent = wait ? '–' : d.submitted.length; $('#a-n-que').textContent = wait ? '–' : d.queued.length; $('#a-n-rej').textContent = wait ? '–' : d.rejected.length + d.failed.length;
     const sl = slots(d.queued);
     $('#a-sub').innerHTML = wait ? emptyRow(5, wait) : d.submitted.map(s => `<tr>${what(s, true)}${kindCell(s)}<td class="nw">${when(s.at)}</td><td class="n">${s.n}</td>
       <td class="act"><button class="btn yes" data-act="approve" data-id="${esc(s.id)}"${dis()}>Approve</button><button class="btn no" data-act="decline" data-id="${esc(s.id)}"${dis()}>Decline</button></td></tr>`).join('') || emptyRow(5, 'Nothing to approve');
-    $('#a-que').innerHTML = wait ? emptyRow(5, wait) : d.queued.map(q => `<tr>${what(q, true)}${kindCell(q)}<td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="act"><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button></td></tr>`).join('') || emptyRow(5, 'Nothing queued');
-    $('#a-rej').innerHTML = wait ? emptyRow(4, wait) : d.rejected.map(q => `<tr>${what(q)}${kindCell(q)}<td class="nw">${when(q.at)}</td><td class="act"><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Undo</button></td></tr>`).join('') || emptyRow(4, 'Nothing declined');
+    $('#a-que').innerHTML = wait ? emptyRow(5, wait) : d.queued.map(q => `<tr>${what(q, true)}${kindCell(q)}<td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="act">${q.running ? '' : `<button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button>`}</td></tr>`).join('') || emptyRow(5, 'Nothing queued');
+    $('#a-rej').innerHTML = wait ? emptyRow(4, wait) : [
+      ...d.failed.map(q => `<tr>${what(q)}${kindCell(q)}<td class="why"><span class="state bad">failed</span><small>${esc(q.note || 'No reason recorded')}</small></td><td class="act"><button class="btn" data-act="retry" data-id="${esc(q.id)}"${dis()}>Retry</button><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button></td></tr>`),
+      ...d.rejected.map(q => `<tr>${what(q)}${kindCell(q)}<td class="nw">declined ${when(q.at)}</td><td class="act"><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Undo</button></td></tr>`)].join('') || emptyRow(4, 'Nothing declined or failed');
     const rows = (live.costs && Array.isArray(live.costs.runs) ? live.costs.runs : []).map(r => ({ ...r, total: num(r.brief) + num(r.single) + num(r.forecasts) + num(r.discussion) }));
     const sum = k => rows.reduce((s, r) => s + num(r[k]), 0), maxT = Math.max(...rows.map(r => r.total), 1e-9);
     $('#a-n-cost').textContent = rows.length ? money(sum('total') / rows.length) : '–';
@@ -780,7 +784,7 @@ function route(name) {
 function go(name) { if (ADMIN) { location.href = '/#' + name; return; } try { if (location.hash !== '#' + name) location.hash = name; } catch (e) {} route(name); }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
-  if (b) { if (b.disabled) return; const id = b.dataset.id, act = b.dataset.act, sub = () => derive().submitted.find(s => s.id === id); return act === 'logout' ? logout() : act === 'withdraw' ? withdraw(id) : act === 'approve' ? decide(sub(), 'queued') : act === 'decline' ? decide(sub(), 'rejected') : undecide(id); }
+  if (b) { if (b.disabled) return; const id = b.dataset.id, act = b.dataset.act, sub = () => derive().submitted.find(s => s.id === id); return act === 'logout' ? logout() : act === 'retry' ? retry(id) : act === 'withdraw' ? withdraw(id) : act === 'approve' ? decide(sub(), 'queued') : act === 'decline' ? decide(sub(), 'rejected') : undecide(id); }
   const m = e.target.closest('[data-mode]'); if (m) { live.mode = m.dataset.mode === 'own' ? 'own' : 'kalshi'; live.msg = null; applyMode(); return paintLive(); }
   const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); }
 });

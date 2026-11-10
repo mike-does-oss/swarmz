@@ -9,5 +9,10 @@ await sql.transaction([
       text text, resolves text, criteria text, at timestamptz not null default now())`,
   sql`create table if not exists login_attempts (ip_hash text not null, at timestamptz not null default now())`,
   sql`create index if not exists login_attempts_at on login_attempts (at)`,
+  // the scheduled runner moves a queued market to running, then done or failed (with a note saying why)
+  sql`alter table queue add column if not exists note text`,
+  sql`alter table queue add column if not exists ran_at timestamptz`,
+  sql`alter table queue drop constraint if exists queue_status_check`,
+  sql`alter table queue add constraint queue_status_check check (status in ('queued','rejected','running','done','failed'))`,
 ]);
 console.log('tables ready');

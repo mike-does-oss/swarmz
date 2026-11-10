@@ -9,3 +9,7 @@ reports/*.md
 .DS_Store
 logs/
 .superpowers/
+.vercel
+briefbuilder/logs/
+briefbuilder/data/
+.env*.local

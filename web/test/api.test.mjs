@@ -96,6 +96,26 @@ test('api', async t => {
     const s = (await call(admin, adm, { action: 'remove', id: qid })).state;
     assert.deepEqual([s.submitted.map(q => q.id), s.rejected], [[qid], []]);
   });
+  await t.test('what the runner does to a queue row shows up in the right places', async () => {
+    await sql.transaction([
+      sql`insert into queue (id, kind, status, ran_at) values ('KXRUN-T1', 'k', 'running', now())`,
+      sql`insert into queue (id, kind, status) values ('KXDONE-T1', 'k', 'done')`,
+      sql`insert into queue (id, kind, status, note) values ('KXFAIL-T1', 'k', 'failed', 'brief rejected: word_count_out_of_range:412')`]);
+    const pub = (await call(state, a)).state;
+    assert.deepEqual(pub.queued.map(q => [q.id, q.running === true]), [[TK, false], ['KXRUN-T1', true]]);
+    assert.equal('failed' in pub, false);
+    assert.equal((await call(state, a, { action: 'submit', ticker: 'KXDONE-T1' })).error, 'done');
+    assert.equal((await call(state, a, { action: 'submit', ticker: 'KXRUN-T1' })).error, 'queued');
+    assert.equal((await call(state, a, { action: 'submit', ticker: 'KXFAIL-T1' })).error, 'declined');
+    let s = (await call(admin, adm)).state;
+    assert.deepEqual(s.failed.map(q => [q.id, q.note]), [['KXFAIL-T1', 'brief rejected: word_count_out_of_range:412']]);
+    s = (await call(admin, adm, { action: 'remove', id: 'KXRUN-T1' })).state;
+    assert.ok(s.queued.some(q => q.id === 'KXRUN-T1'), 'a running market cannot be removed');
+    s = (await call(admin, adm, { action: 'add', ticker: 'KXDONE-T1' })).state;
+    assert.equal(s.queued.some(q => q.id === 'KXDONE-T1'), false, 'a finished market is not queued again');
+    s = (await call(admin, adm, { action: 'retry', id: 'KXFAIL-T1' })).state;
+    assert.deepEqual([s.failed, s.queued.at(-1).id], [[], 'KXFAIL-T1']);
+  });
   await t.test('sign out ends the session', async () => {
     const old = adm.cookie;
     assert.equal((await call(admin, adm, { action: 'logout' })).admin, false);

@@ -422,5 +422,72 @@ def backtest(file: Path = typer.Argument(..., exists=True), arms: str = "A0,PANE
     console.print(f"{len(rep.runs)} runs, {len(rep.refused)} refused")
 
 
+
+# ------------------------------------------------------------------- cloud
+
+cloud_app = typer.Typer(no_args_is_help=True, help="The copy of the registry kept in Postgres for the scheduled cloud runs.")
+app.add_typer(cloud_app, name="cloud")
+
+
+def _local_briefs() -> Path:
+    from . import cloud
+    return cloud.briefs_dir()   # briefs are recorded by absolute path, so they live at the cloud's path here too
+
+
+@cloud_app.command("status")
+def cloud_status():
+    """What is stored, who holds the lock, and the queue."""
+    from . import cloud
+    pg = cloud.connect_pg()
+    cloud.ensure_schema(pg)
+    f = pg.execute("select octet_length(data), updated_at from engine_files where name = %s", [cloud.ARCHIVE]).fetchone()
+    console.print(f"registry: {f[0] / 1e6:.1f} MB, saved {f[1]:%Y-%m-%d %H:%M} UTC" if f else "registry: nothing stored")
+    lk = pg.execute("select locked_until > now(), locked_until, holder from engine_lock where id = 1").fetchone()
+    console.print(f"lock: held by {lk[2]} until {lk[1]:%H:%M:%S} UTC" if lk and lk[0] else "lock: free")
+    for status, n in pg.execute("select status, count(*) from queue group by 1 order by 1").fetchall():
+        console.print(f"queue {status}: {n}")
+    for key, at in pg.execute("select key, updated_at from site_data order by 1").fetchall():
+        console.print(f"site data {key}: stored {at:%Y-%m-%d %H:%M} UTC")
+
+
+@cloud_app.command("push")
+def cloud_push(yes: bool = typer.Option(False, "--yes", help="Replace the stored registry without asking")):
+    """Store this machine's registry as the cloud's. Replaces what is there."""
+    from . import cloud
+    pg = cloud.connect_pg()
+    cloud.ensure_schema(pg)
+    if not yes and pg.execute("select 1 from engine_files where name = %s", [cloud.ARCHIVE]).fetchone():
+        typer.confirm("A registry is already stored. Replace it with this machine's?", abort=True)
+    if not cloud.lock(pg, "cli-push"):
+        raise typer.BadParameter("a cloud run holds the lock; try again when it has finished")
+    try:
+        n = cloud.push(pg, settings().db_path, _local_briefs())
+    finally:
+        cloud.unlock(pg, "cli-push")
+    console.print(f"stored {n / 1e6:.1f} MB")
+
+
+@cloud_app.command("pull")
+def cloud_pull():
+    """Replace this machine's registry with the cloud's. The old file is kept beside it as .before-pull."""
+    import shutil
+    from . import cloud
+    pg = cloud.connect_pg()
+    db = settings().db_path
+    if db.exists():
+        shutil.copy2(db, str(db) + ".before-pull")
+    got = cloud.pull(pg, db, _local_briefs())
+    if got is None:
+        raise typer.BadParameter("nothing is stored yet")
+    console.print(f"pulled {got['bytes'] / 1e6:.1f} MB and {got['briefs']} briefs, saved {got['updated_at']}")
+
+
+@cloud_app.command("tick")
+def cloud_tick(dry_run: bool = typer.Option(False, help="Say what would run, and change nothing")):
+    """Do one scheduled pass from this machine, in the scratch folder. Costs money if a market is queued."""
+    from . import cloud
+    console.print(cloud.tick(run=not dry_run, log=console.print))
+
+
 if __name__ == "__main__":
     app()

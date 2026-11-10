@@ -23,8 +23,26 @@ Everything runs on one machine, as plain model calls plus one DuckDB file (`data
 persona registry, forecasts, scores, lessons, calibration fits and the selection audit trail. The
 registry is the **only** channel between questions.
 
-The brief builder (Decomposer, Assembler, Scrubber) is unchanged and stays in
-its own project folder, `shoals-new`, with its own Python; swarmz only consumes its frozen briefs.
+The brief builder (Decomposer, Assembler, Scrubber) lives in `briefbuilder/`. swarmz starts it as a
+child process and only consumes its frozen briefs; its model and keys are the `BRIEF_*` settings.
+
+## Running in the cloud
+
+Nothing has to stay switched on. A Vercel project (`swarmz-engine`, this folder) has one scheduled
+function, `api/tick.py`, that Vercel Cron calls on the even hours UTC. Each call runs `swarmz.cloud.tick()`:
+
+1. take the lock, and unpack the registry and briefs from the `engine_files` table in Postgres;
+2. run the oldest queued Kalshi market from the Supercast queue (brief, single call, panel) and mark
+   its queue row `done` or `failed` with the reason;
+3. settle, score and learn from markets that have resolved;
+4. export the site's data to the `site_data` table and call the site's deploy hook, which rebuilds the page;
+5. pack the registry back and release the lock.
+
+The registry is still one DuckDB file; Postgres only stores it between runs. `swarmz cloud status`
+shows what is stored, `swarmz cloud pull` copies it to this machine (the cloud copy is the one that
+counts now), and `swarmz cloud push` replaces it with this machine's. Settings on the Vercel project:
+`DATABASE_URL`, `CRON_SECRET`, `SITE_DEPLOY_HOOK_URL`, `ANTHROPIC_API_KEY` and the `BRIEF_*` ones
+(`scripts/push_keys.py` copies the keys up). `SWARMZ_QUEUE_MAX_PER_DAY` caps paid runs (default 12).
 
 ## Setup
 
@@ -51,9 +69,8 @@ uv run swarmz questions exclude QID --reason "..."   # set a question aside (see
 
 **Short-dated questions.** `swarmz questions pick` finds Kalshi markets expected to resolve in 4-36h
 (by expected resolution, not close; events whose date has passed are skipped), one per event and per
-game/day, 10-90c, mixed across categories. `--build` freezes a brief for each with the unchanged
-brief builder (run in its own Python via `scripts/build_brief.py`; set `BRIEF_BUILDER_DIR` / `BRIEF_BUILDER_PYTHON`
-if it moves) and imports it; `--run A0,PANEL`
+game/day, 10-90c, mixed across categories. `--build` freezes a brief for each with the
+brief builder (run as a child process via `scripts/build_brief.py`) and imports it; `--run A0,PANEL`
 then runs the arms. Example: `swarmz questions pick --n 5 --max-per-category 1 --min-volume 300 --build --run A0,PANEL`.
 `--min-brief-words` (default 800) relaxes the builder's 1,500-word minimum, which daily price markets rarely reach.
 
@@ -186,4 +203,4 @@ uv run pytest            # fake LLM, no network
 | Elicitation and discussion prompts | `swarmz/capture/elicit.py`, `swarmz/panel.py` |
 | Backtest question set and model cutoffs | cutoffs in `config/models.yaml` are placeholders to confirm |
 | When A3/A4 start | they run whenever you include them in `--arms` |
-| Brief builder carry-overs | unchanged; lives in the `shoals-new` folder |
+| Brief builder | lives in `briefbuilder/`, copied from the `shoals-new` project on 2026-11-10 |

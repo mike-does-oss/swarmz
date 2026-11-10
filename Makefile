@@ -1,4 +1,4 @@
-.PHONY: health test test-all backup watch unwatch watch-status queue-on queue-off queue-status
+.PHONY: health test test-all backup watch unwatch watch-status cloud-status cloud-pull
 
 health:
 	uv run swarmz health
@@ -32,20 +32,9 @@ watch-status:
 	@if [ -f data/resolve-watch.pid ] && kill -0 $$(cat data/resolve-watch.pid) 2>/dev/null; then echo "running (pid $$(cat data/resolve-watch.pid))"; else echo "not running"; fi
 	@tail -5 logs/resolve-watch.log 2>/dev/null || true
 
-# Supercast queue: every two hours (even UTC hours) run the oldest queued Kalshi market, then push the site data.
-# Each run costs money. Log: logs/queue.log
-queue-on:
-	@mkdir -p logs ~/Library/LaunchAgents
-	@cp scripts/com.swarmz.queue.plist ~/Library/LaunchAgents/com.swarmz.queue.plist
-	@launchctl bootout gui/$$(id -u)/com.swarmz.queue 2>/dev/null || true
-	@launchctl enable gui/$$(id -u)/com.swarmz.queue
-	@launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.swarmz.queue.plist && echo "queue schedule on"
+# The scheduled runs happen in the cloud (see swarmz/cloud.py). These work on the stored copy of the registry.
+cloud-status:
+	uv run swarmz cloud status
 
-# Stops the schedule now and keeps it off after a restart. The plist stays in ~/Library/LaunchAgents.
-queue-off:
-	@launchctl bootout gui/$$(id -u)/com.swarmz.queue 2>/dev/null && echo "queue schedule off" || echo "not loaded"
-	@launchctl disable gui/$$(id -u)/com.swarmz.queue
-
-queue-status:
-	@launchctl print gui/$$(id -u)/com.swarmz.queue 2>/dev/null | grep -E "state =|last exit code|runs =" || echo "not loaded"
-	@tail -8 logs/queue.log 2>/dev/null || true
+cloud-pull:
+	uv run swarmz cloud pull

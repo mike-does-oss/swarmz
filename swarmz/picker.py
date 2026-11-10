@@ -8,9 +8,9 @@ outcome isn't already decided, enough volume to be a real market, and at most
 ``max_per_category`` per Kalshi category, filled round-robin across categories so sports
 don't take every slot.
 
-Briefs come from the unchanged brief builder (BriefPipeline, in the shoals-new folder), run in its
-own Python (``BRIEF_BUILDER_PYTHON``) via scripts/build_brief.py; LLM calls it makes are recorded
-under stage "brief" in the usage table.
+Briefs come from the brief builder (BriefPipeline, in briefbuilder/), run as a child process via
+scripts/build_brief.py so its model calls can be metered apart from the panel's; they are recorded
+under stage "brief" in the usage table. Its keys come from BRIEF_* variables (see BUILDER_KEYS).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -29,11 +30,32 @@ from . import usage
 from .config import ROOT
 from .scoring.resolve import KALSHI_API_BASE
 
-# The brief builder lives in its own project (folder still named shoals-new) with its own Python 3.11.
-BRIEF_BUILDER_DIR = Path(os.environ.get("BRIEF_BUILDER_DIR", Path.home() / "Desktop/projects/shoals-new/backend"))
-BRIEF_BUILDER_PYTHON = Path(os.environ.get("BRIEF_BUILDER_PYTHON", BRIEF_BUILDER_DIR / ".venv/bin/python"))
-BRIEF_LOG = BRIEF_BUILDER_DIR / "data" / "shoals.db"     # the builder's prediction log (SQLite)
-BRIEFS_DIR = BRIEF_BUILDER_DIR / "data" / "briefs_v2"
+# The brief builder is a package of its own in this repo. It runs in this Python unless told otherwise.
+BRIEF_BUILDER_DIR = Path(os.environ.get("BRIEF_BUILDER_DIR", ROOT / "briefbuilder"))
+BRIEF_BUILDER_PYTHON = Path(os.environ.get("BRIEF_BUILDER_PYTHON", sys.executable))
+BRIEF_DATA_DIR = Path(os.environ.get("BRIEF_DATA_DIR", ROOT / "data" / "briefbuilder"))   # must be writable
+BRIEF_LOG = BRIEF_DATA_DIR / "shoals.db"                 # the builder's own log of what it built (SQLite)
+BRIEFS_DIR = BRIEF_DATA_DIR / "briefs_v2"
+# Settings the builder reads. Each is passed to it from BRIEF_<name>, so its model and keys can differ
+# from the panel's; all but the LLM_* ones fall back to the plain name.
+BUILDER_KEYS = ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_NAME", "ASSEMBLER_MODEL", "ASSEMBLER_BASE_URL",
+                "ASSEMBLER_API_KEY", "SCRUBBER_MODEL", "SCRUBBER_BASE_URL", "SCRUBBER_API_KEY", "BRAVE_API_KEY")
+
+
+def builder_env() -> dict:
+    """The environment for the builder's process: its own keys, a writable data folder, and this
+    process's import path, so it finds the same installed packages wherever they live."""
+    env = dict(os.environ)
+    for k in BUILDER_KEYS:
+        v = os.environ.get("BRIEF_" + k) or (None if k.startswith("LLM_") else os.environ.get(k))
+        env.pop(k, None)
+        if v:
+            env[k] = v
+    BRIEF_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    env["DATA_DIR"] = str(BRIEF_DATA_DIR)
+    env.setdefault("BRIEF_LOG_DIR", str(BRIEF_DATA_DIR / "logs"))
+    env["PYTHONPATH"] = os.pathsep.join(p for p in [env.get("PYTHONPATH", ""), *sys.path] if p)
+    return env
 BUILD_SCRIPT = ROOT / "scripts" / "build_brief.py"
 
 
@@ -247,9 +269,9 @@ def build_brief(ticker: str, timeout: float = 1800, min_words: int | None = None
         raise FileNotFoundError(f"brief builder Python not found at {BRIEF_BUILDER_PYTHON} (set BRIEF_BUILDER_PYTHON)")
     with tempfile.TemporaryDirectory() as tmp:
         usage_file = Path(tmp) / "usage.jsonl"
-        env = {**os.environ, **usage.subprocess_env(usage_file, stage="brief")}
-        for k in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_NAME"):
-            env.pop(k, None)   # let the brief builder use its own .env, not swarmz's
+        env = builder_env()
+        hook = usage.subprocess_env(usage_file, stage="brief")
+        env.update({**hook, "PYTHONPATH": hook["PYTHONPATH"].split(os.pathsep)[0] + os.pathsep + env["PYTHONPATH"]})
         cmd = [str(BRIEF_BUILDER_PYTHON), str(BUILD_SCRIPT), ticker] + ([str(min_words)] if min_words else [])
         proc = subprocess.run(cmd, cwd=BRIEF_BUILDER_DIR, env=env,
                               capture_output=True, text=True, timeout=timeout)

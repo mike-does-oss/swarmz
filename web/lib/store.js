@@ -22,10 +22,14 @@ const pendingQ = (sql, who) => sql`
            row_number() over (partition by s.id order by s.at) as rn
     from submissions s where not exists (select 1 from queue q where q.id = s.id)) t
   where rn = 1 order by at limit ${MAX_PENDING}`;
-const queueQ = sql => sql`select id, kind, status, text, resolves, criteria, at from queue order by at limit 1000`;
+const queueQ = sql => sql`select id, kind, status, text, resolves, criteria, at, note from queue where status <> 'done' order by at limit 1000`;
 function shape(pending, queue, admin) {
-  const state = { queued: queue.filter(q => q.status === 'queued').map(row), submitted: pending.map(r => ({ ...row(r), n: r.n, mine: r.mine === true })) };
-  if (admin) state.rejected = queue.filter(q => q.status === 'rejected').map(row);     // visitors are never told what was declined
+  const state = { queued: queue.filter(q => q.status === 'queued' || q.status === 'running').map(q => ({ ...row(q), ...(q.status === 'running' ? { running: true } : {}) })),
+    submitted: pending.map(r => ({ ...row(r), n: r.n, mine: r.mine === true })) };
+  if (admin) {                                           // visitors are never told what was declined or what failed
+    state.rejected = queue.filter(q => q.status === 'rejected').map(row);
+    state.failed = queue.filter(q => q.status === 'failed').map(q => ({ ...row(q), note: String(q.note || '').slice(0, 400) }));
+  }
   return state;
 }
 // Runs the given writes, then reads the state back, all in one round trip.
@@ -49,7 +53,7 @@ export async function submit(e, who, ip) {
             on conflict (id, viewer) do nothing returning 1)
     select (select status from q) as status, (select dup from mine) as dup, (select c from mine) as mine, (select c from ip) as ip, (select c from total) as total, (select count(*)::int from ins) as inserted`], who, false);
   const r = results[0][0];
-  const error = r.inserted ? null : r.status === 'queued' ? 'queued' : r.status === 'rejected' ? 'declined' : r.dup ? 'dup' : r.mine >= MAX_MINE ? 'cap' : r.ip >= MAX_PER_IP ? 'rate' : r.total >= MAX_PENDING ? 'full' : 'dup';
+  const error = r.inserted ? null : r.status === 'done' ? 'done' : r.status === 'rejected' || r.status === 'failed' ? 'declined' : r.status ? 'queued' : r.dup ? 'dup' : r.mine >= MAX_MINE ? 'cap' : r.ip >= MAX_PER_IP ? 'rate' : r.total >= MAX_PENDING ? 'full' : 'dup';
   return { error, state };
 }
 export const withdraw = async (id, who) => (await run(sql => [sql`delete from submissions where id = ${id} and viewer = ${who}`], who, false)).state;
@@ -58,11 +62,14 @@ export const withdraw = async (id, who) => (await run(sql => [sql`delete from su
 export const decide = async (id, status) => (await run(sql => [sql`
   insert into queue (id, kind, status, text, resolves, criteria)
   select id, kind, ${status}, text, resolves, criteria from submissions where id = ${id} order by at limit 1
-  on conflict (id) do update set status = excluded.status, at = now()`], null, true)).state;
-export const remove = async id => (await run(sql => [sql`delete from queue where id = ${id}`], null, true)).state;
+  on conflict (id) do update set status = excluded.status, at = now(), note = null where queue.status in ('queued', 'rejected')`], null, true)).state;
+// A failed run goes back in the queue, at the end.
+export const retry = async id => (await run(sql => [sql`update queue set status = 'queued', note = null, ran_at = null, at = now() where id = ${id} and status = 'failed'`], null, true)).state;
+// A market that is running is left alone: the runner is about to write to its row.
+export const remove = async id => (await run(sql => [sql`delete from queue where id = ${id} and status <> 'running'`], null, true)).state;
 export const add = async e => (await run(sql => [sql`
   insert into queue (id, kind, status, text, resolves, criteria) values (${e.id}, ${e.kind}, 'queued', ${e.text}, ${e.resolves}, ${e.criteria})
-  on conflict (id) do update set status = 'queued', at = now()`], null, true)).state;
+  on conflict (id) do update set status = 'queued', at = now(), note = null where queue.status in ('rejected', 'failed')`], null, true)).state;
 
 // Sign in attempts: five wrong tries from one address in 15 minutes locks it out, and so do sixty from anywhere in an hour.
 export async function locked(ip) {

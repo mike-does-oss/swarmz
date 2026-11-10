@@ -14,6 +14,9 @@ dependencies = [
     "python-dotenv>=1.0",
     "requests>=2.31",
     "httpx>=0.27",
+    "openai>=1.40",
+    "trafilatura>=1.8",
+    "psycopg[binary]>=3.2",
 ]
 
 [project.scripts]
@@ -32,6 +35,6 @@ build-backend = "hatchling.build"
 packages = ["swarmz"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "briefbuilder/tests"]
 markers = ["integration: needs live API keys"]
 addopts = "-m 'not integration'"

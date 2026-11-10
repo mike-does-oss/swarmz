@@ -1,9 +1,8 @@
 """Build and freeze a v2 brief for one Kalshi ticker. Runs inside the brief builder's own Python.
 
-    <brief builder python> scripts/build_brief.py TICKER [MIN_WORDS]   (cwd = the brief builder's backend/,
-    today ~/Desktop/projects/shoals-new/backend)
+    python scripts/build_brief.py TICKER [MIN_WORDS]   (cwd = briefbuilder/; swarmz/picker.py starts it)
 
-Calls the unchanged brief builder (BriefPipeline: (decompose -> retrieve -> triage -> assemble -> scrub -> freeze),
+Calls the brief builder (BriefPipeline: (decompose -> retrieve -> triage -> assemble -> scrub -> freeze),
 which writes the brief to data/briefs_v2 and a row to its prediction log (data/shoals.db). Prints one JSON line:
 {"ticker", "status": "frozen" | "rejected" | "error", "reject_reason", "brief_hash", "word_count", "freeze_ts",
  "latest_reading"}

@@ -3,7 +3,6 @@
   "framework": null,
   "buildCommand": "node build.mjs",
   "outputDirectory": "public",
-  "ignoreCommand": "[ -n \"$VERCEL_GIT_PREVIOUS_SHA\" ] && git diff --quiet $VERCEL_GIT_PREVIOUS_SHA HEAD -- .",
   "trailingSlash": false,
   "regions": ["iad1"],
   "functions": { "api/*.js": { "maxDuration": 15 } },
