@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Supercast</title>
-<meta name="description" content="Supercast puts a yes or no question to a panel of ten forecasting agents, lets them argue it out, and pools their forecasts. Research prototype.">
+<title>Supercaster</title>
+<meta name="description" content="Supercaster puts a yes or no question to a panel of ten forecasting agents, lets them argue it out, and pools their forecasts. Research prototype.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0e13'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23e8b84a'/%3E%3Ccircle cx='7' cy='9' r='2.5' fill='%235b9cf0'/%3E%3Ccircle cx='25' cy='10' r='2.5' fill='%233fc1b0'/%3E%3Ccircle cx='9' cy='25' r='2.5' fill='%23f08a4b'/%3E%3Ccircle cx='24' cy='24' r='2.5' fill='%23c3c9d4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -372,6 +372,7 @@
   .submit.login { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; box-shadow: none; padding-top: 0; }
   .submit.login .btn { grid-column: 1 / -1; }
   .ov > .msg { padding: 0 2px; flex-basis: auto; }
+  .waitbody { padding: 18px 14px 20px; display: flex; flex-direction: column; gap: 10px; } .waitbody p { margin: 0; } .waitbody .wq { font-size: 18px; font-weight: 700; line-height: 1.3; max-width: 60ch; text-wrap: balance; } .waitbody .state { margin-right: 10px; }
   .state.bad { --sc: var(--no); } .ov td.why small { display: block; margin-top: 4px; color: var(--dim); max-width: 46ch; overflow-wrap: anywhere; white-space: normal; }
   .admbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
   .legal { flex: none; margin: 0; color: var(--faint); font-size: 10.5px; line-height: 1.45; text-align: center; text-wrap: balance; }
@@ -414,8 +415,8 @@
 
 <div class="app">
   <header class="bar">
-    <a class="chip" href="#overview" data-go="overview">SUPERCAST</a>
-    <nav class="tabs" aria-label="Views"><a href="#overview" data-go="overview" id="tab-ov">Overview</a><a href="#agents" data-go="agents" id="tab-ag">Agents and scoring</a><a href="#overview" id="tab-run">Replay</a></nav>
+    <a class="chip" href="#runs" data-go="runs">SUPERCASTER</a>
+    <nav class="tabs" aria-label="Views"><a href="#runs" data-go="runs" id="tab-run">Runs</a><a href="#overview" data-go="overview" id="tab-ov">Overview</a><a href="#agents" data-go="agents" id="tab-ag">Agents and scoring</a></nav>
     <h1 id="q"></h1>
     <select id="runpick" aria-label="Choose a run" hidden></select>
     <span class="counts" id="counts"></span>
@@ -573,7 +574,7 @@ async function write(body, done) {                         // one request at a t
 async function connect() {
   const slow = setTimeout(() => { if (live.state === 'loading') { live.state = 'failed'; paintLive(); } }, 10000);
   try { take(await call()); } catch (e) { live.state = 'failed'; }
-  clearTimeout(slow); paintLive();
+  clearTimeout(slow); paintLive(); watchRuns();
 }
 // the form takes a Kalshi ticker or an own question, picked with the switch at its top
 const formHtml = (kind, p, title, tipText, button) => `<form class="submit" data-form="${kind}" novalidate>
@@ -776,21 +777,67 @@ const VIEWS = ADMIN ? { admin: mountAdmin } : { overview: mountOverview, agents:
 pickEl.innerHTML = APP.runs.map(r => `<option value="${r.run_id}">${r.finished.slice(0, 16)} UTC, ${esc(r.question.length > 40 ? r.question.slice(0, 39).trimEnd() + '…' : r.question)}</option>`).join('');
 $('#counts').textContent = 'as of ' + APP.generated;
 $('#counts').dataset.tip = 'Finished runs are a copy of the registry taken at this time.';
-function route(name) {
-  const isRun = !ADMIN && !!(name && name.startsWith('run-') && RUNS[name.slice(4)]);
-  if (!isRun && !VIEWS[name]) name = ADMIN ? 'admin' : 'overview';
-  if (name === current) return;
+// The run in progress, when there is one. The page asks for it every few seconds only while a run is on.
+const watch = { doc: null, timer: null, until: 0, slot: null };
+// Which view a name means. "runs", or nothing, is the run in progress if there is one, else the latest finished run.
+function resolve(name) {
+  if (ADMIN) return 'admin';
+  if (VIEWS[name]) return name;
+  if (name === 'run-live' && watch.doc && watch.doc.ticker) return name;
+  if (name && name !== 'run-live' && name.startsWith('run-') && RUNS[name.slice(4)]) return name;
+  return watch.doc && watch.doc.active ? 'run-live' : lastRun ? 'run-' + lastRun : 'overview';
+}
+function route(name, again) {                              // again: the same view, redrawn because the live run moved on
+  name = resolve(name);
+  const isLive = name === 'run-live', isRun = name.startsWith('run-');
+  if (name === current && !again) return;
+  const keep = again && isLive && window.replay ? window.replay.t : null;
   current = name; tip.hidden = true; paint = null; live.msg = null;
   if (unmount) { unmount(); unmount = null; window.replay = null; }
   view.textContent = '';
   $('#counts').textContent = 'as of ' + APP.generated; $('#counts').dataset.tip = 'Finished runs are a copy of the registry taken at this time.';
-  if (isRun) { lastRun = name.slice(4); pickEl.value = lastRun; unmount = mountReplay(RUNS[lastRun]); } else VIEWS[name]();
-  pickEl.hidden = !isRun || APP.runs.length < 2;
-  const tr = $('#tab-run'); tr.hidden = !lastRun; tr.dataset.go = 'run-' + lastRun; tr.href = '#run-' + lastRun;
+  if (isLive) unmount = mountLive(keep); else if (isRun) { lastRun = name.slice(4); pickEl.value = lastRun; unmount = mountReplay(RUNS[lastRun]); } else VIEWS[name]();
+  pickEl.hidden = !isRun || isLive || APP.runs.length < 2;
+  const tr = $('#tab-run'); tr.hidden = ADMIN ? false : !(lastRun || watch.doc);
   isRun ? tr.setAttribute('aria-current', 'page') : tr.removeAttribute('aria-current');
   for (const [k, s] of Object.entries(TABS)) k === name ? $(s).setAttribute('aria-current', 'page') : $(s).removeAttribute('aria-current');
   $('.app').classList.toggle('adm', name === 'admin');
-  paintLive(); scrollTo(0, 0);
+  paintLive(); if (!again) scrollTo(0, 0);
+}
+function mountLive(keepT) {
+  const d = watch.doc, run = d.run;
+  if (run && Array.isArray(run.agents) && run.agents.length && run.live_done >= 0) return mountReplay(run, keepT);
+  const el = document.createElement('main'); el.className = 'ov';   // no forecasts yet: the brief is being built
+  el.innerHTML = `<section class="card a-que"><header>${head('Run in progress', 'The discussion appears here round by round once the brief is built. Building the brief takes about three minutes.')}</header>
+    <div class="waitbody"><p class="wq">${esc(d.title || d.ticker)}</p><p><span class="state ${d.stage === 'failed' ? 'bad' : 'que'}">${d.stage === 'failed' ? 'the run failed' : 'building the brief'}</span>
+    <span class="dimc">started ${esc(String(d.started || '').slice(11, 16))} UTC</span></p></div></section>`;
+  view.appendChild(el); $('#q').textContent = '';
+  return () => {};
+}
+async function pollLive() {
+  clearTimeout(watch.timer);
+  let doc = null; try { const r = await fetch('/api/live', { cache: 'no-store' }); if (r.ok) doc = await r.json(); } catch (e) {}
+  const was = !!(watch.doc && watch.doc.active);
+  if (doc && typeof doc.ticker === 'string') {
+    const age = Date.now() - Date.parse(String(doc.started).replace(' ', 'T') + 'Z');
+    if (doc.active && !(age < 25 * 60e3)) doc.active = false;          // a run that old was cut off
+    if (doc.active || (watch.doc && watch.doc.ticker === doc.ticker)) {
+      const changed = !watch.doc || watch.doc.rev !== doc.rev || watch.doc.ticker !== doc.ticker;
+      watch.doc = doc;
+      if (changed) { if (current === 'run-live') route('run-live', true); else if (['', '#runs'].includes(location.hash)) route('runs'); }
+    }
+  }
+  const on = !!(watch.doc && watch.doc.active);
+  if (on || Date.now() < watch.until) watch.timer = setTimeout(pollLive, 4000);
+  if (was && !on) { watch.until = 0; connect(); }                      // it finished: read the queue again
+}
+// Start watching when the queue says a market is running, and look again when the next slot comes round.
+function watchRuns() {
+  if (ADMIN) return;
+  const q = (live.rows && Array.isArray(live.rows.queued)) ? live.rows.queued : [];
+  if (q.some(x => x && x.running) && !(watch.doc && watch.doc.active)) { watch.until = Date.now() + 8 * 60e3; pollLive(); }
+  clearTimeout(watch.slot);
+  if (q.length) watch.slot = setTimeout(connect, Math.ceil(Date.now() / EVERY) * EVERY - Date.now() + 20e3);
 }
 function go(name) { if (ADMIN) { location.href = '/#' + name; return; } try { if (location.hash !== '#' + name) location.hash = name; } catch (e) {} route(name); }
 document.addEventListener('click', e => {
@@ -823,11 +870,12 @@ dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[
 dlg.addEventListener('close', () => { document.body.appendChild(tip); tip.hidden = true; });
 document.addEventListener('pointerleave', () => { tip.hidden = true; });
 
-function mountReplay(D) {
+function mountReplay(D, startT) {
 view.appendChild($('#tpl-run').content.cloneNode(true));
 const ac = new AbortController(); let alive = true;
 const on = (type, fn) => addEventListener(type, fn, { signal: ac.signal });
 const R = D.rounds, LAST = R + 1, END = R + 2;           // step 0 opening, 1..R rounds, R+1 final
+const LIVE = D.live_done != null && D.live_done < LAST, LIMIT = LIVE ? D.live_done + 1 - .001 : END;   // a run in progress plays only as far as it has got
 const A = D.agents, NA = A.length;
 const ix = Object.fromEntries(A.map((a, i) => [a.id, i]));
 const LIKE = [255, 92, 138];
@@ -881,7 +929,7 @@ const likesOf = (i, tt) => postOf[i].reduce((s, n) => s + (n ? countAt(n.likeAt,
 
 // ---------- state ----------
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let t = still ? END : 0, playing = !still, speed = 1, mode = 'agent', sel = null, shownStep = -1, shownEnd = null;
+let t = startT != null ? Math.min(startT, LIMIT) : LIVE ? Math.max(0, LIMIT - 1) : still ? END : 0, playing = !still || startT != null || LIVE, speed = 1, mode = 'agent', sel = null, shownStep = -1, shownEnd = null;
 $('#stageq').textContent = D.question;
 { const fin = D.aggregates.equal, ref = D.market != null ? 'market probability at ' + P(D.market) : 'single call ' + P(D.a0);
   $('#sf-p').textContent = P(fin); $('#sf-p').style.color = tint(fin);
@@ -1108,7 +1156,7 @@ $('#mode-agent').onclick = () => setMode('agent'); $('#mode-belief').onclick = (
 function setPlaying(p) { playing = p; $('#pp').textContent = p ? 'Pause' : (t >= END ? 'Replay' : 'Play'); }
 $('#pp').onclick = () => { if (!playing && t >= END) t = 0; setPlaying(!playing); };
 $('#sp').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('#sp').textContent = speed + '×'; };
-$('#scrub').addEventListener('input', e => { t = +e.target.value; setPlaying(false); });
+$('#scrub').addEventListener('input', e => { t = Math.min(+e.target.value, LIMIT); setPlaying(false); });
 on('keydown', e => { if (e.code === 'Space' && !dlg.open && !/INPUT|BUTTON|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#pp').click(); } });
 
 // ---------- stage ----------
@@ -1294,9 +1342,9 @@ const setText = (id, v) => { if (txt[id] !== v) { txt[id] = v; const el = docume
 function frame(now) {
   if (!alive) return;
   const dt = Math.min(.1, (now - prev) / 1000); prev = now;
-  if (playing) { t += dt / STEP_SEC * speed; if (t >= END) { t = END; setPlaying(false); } }
+  if (playing) { t += dt / STEP_SEC * speed; if (t >= LIMIT) { t = LIMIT; if (!LIVE) setPlaying(false); } }
   yaw = .5 + (t / END) * Math.PI * 2 + userYaw;                 // one full turn over the run
-  const s = stepOf(t); if (s !== shownStep) { shownStep = s; $('#stepname').textContent = STEP_TEXT(s)[0]; }
+  const s = stepOf(t); if (s !== shownStep) { shownStep = s; $('#stepname').textContent = (LIVE ? 'Live, ' : '') + STEP_TEXT(s)[0]; }
   if ((t >= END) !== shownEnd) { shownEnd = t >= END; $('#stagefinal').hidden = !shownEnd; }   // where the panel ended, once the run has played out
   syncTerm();
   const now_ = A.map((_, i) => probAt(i, t));
@@ -1321,7 +1369,7 @@ window.replay = { get t() { return t; }, set t(v) { t = v; }, setPlaying };     
 return () => { alive = false; ac.abort(); ro1.disconnect(); ro2.disconnect(); if (dlg.open) dlg.close(); };
 }
 
-window.supercast = { live, paintLive, derive };            // for poking at it from the console
+window.supercast = { live, paintLive, derive, watch };            // for poking at it from the console
 route(location.hash.slice(1));
 connect().catch(() => { live.state = 'failed'; paintLive(); });
 </script>

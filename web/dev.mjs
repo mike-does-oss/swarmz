@@ -1,7 +1,7 @@
 // Local server: the built page at / and /wp-admin, and the same API handlers Vercel runs. Usage: node --env-file=.env.local dev.mjs
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-const routes = { '/api/state': await import('./api/state.js'), '/api/admin': await import('./api/admin.js') };
+const routes = { '/api/state': await import('./api/state.js'), '/api/admin': await import('./api/admin.js'), '/api/live': await import('./api/live.js') };
 const port = Number(process.env.SUPERCAST_PORT) || 3210;
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`), mod = routes[url.pathname];
