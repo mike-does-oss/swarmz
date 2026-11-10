@@ -80,8 +80,10 @@
   .legend .hint { padding: 7px 6px 0; color: var(--faint); font-size: 10px; }
 
   .stagetop { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); text-align: center; pointer-events: none; z-index: 3000; }
-  .stagebottom { position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%); width: min(560px, 62%); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; pointer-events: none; z-index: 3000; }
-  .stageq { font-weight: 700; font-size: 18px; line-height: 1.3; color: var(--ink); text-wrap: balance; text-shadow: 0 1px 8px #03050b, 0 0 2px #03050b; }
+  .stagebottom { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); width: min(820px, 80%); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; pointer-events: none; z-index: 3000; }
+  .stageq { font-weight: 700; font-size: clamp(20px, 1.9vw, 26px); line-height: 1.28; letter-spacing: -.01em; color: #fff; text-wrap: balance; padding: 12px 22px 13px; border-radius: 12px;
+             background: rgba(5, 8, 17, .78); border: 1px solid rgba(120, 140, 190, .28); box-shadow: 0 8px 30px rgba(0, 0, 0, .45); }
+  .stageq:empty { display: none; }
   .stepname { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: var(--text2); white-space: nowrap; }
   .stagefinal { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 22px 11px; text-align: center;
                 background: rgba(6, 10, 20, .86); border: 1px solid #3a4763; border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
@@ -153,7 +155,7 @@
     .stagewrap { display: flex; flex-direction: column; overflow: visible; background: none; border: 0; gap: 10px; }
     .stage { position: relative; inset: auto; height: 58vh; min-height: 340px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--space); border-color: #3a4763; }
     .legend { position: static; width: auto; }
-    .stagetop { top: 10px; } .stagebottom { bottom: 30px; width: 90%; } .stageq { font-size: 15px; } .stagefinal b { font-size: 28px; }
+    .stagetop { top: 10px; } .stagebottom { bottom: 30px; width: 92%; } .stageq { font-size: 18px; padding: 10px 14px 11px; } .stagefinal b { font-size: 28px; }
     .readout { display: none; }
     .term { height: 70vh; }
     .bub { max-width: 170px; }
@@ -1224,7 +1226,7 @@ function fit() { dpr = Math.min(2, devicePixelRatio || 1); W = stage.clientWidth
 const ro1 = new ResizeObserver(fit); ro1.observe(stage); fit();
 let yaw = 0, visLinks = 0, at3 = null;
 function project() {
-  const wide = innerWidth > 880, cx = W / 2, cy = H / 2 - 18;      // centred, and a little high to leave room for the question below
+  const wide = innerWidth > 880, cx = W / 2, cy = H / 2 - 34;      // centred, and a little high to leave room for the question below
   const zoom = Math.min((W - (wide ? 236 : 0)) / 700, H / 600), F = 950;
   const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
   at3 = (x0, y0, z0) => { const x = x0 * cyw + z0 * syw, z = -x0 * syw + z0 * cyw, y2 = y0 * cp - z * sp, z2 = y0 * sp + z * cp, s = F / (F + z2) * zoom; return [cx + x * s, cy + y2 * s, s, z2]; };
