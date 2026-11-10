@@ -6,7 +6,7 @@ import { db } from '../lib/db.js';
 import * as state from '../api/state.js';
 import * as admin from '../api/admin.js';
 
-process.env.SUPERCAST_KALSHI_LOOKUP = 'off';   // the tickers here are made up
+process.env.SUPERCAST_KALSHI_LOOKUP = 'off'; process.env.SUPERCAST_ENGINE = 'off';   // the tickers here are made up
 const ORIGIN = 'http://localhost:3210', pw = process.env.TEST_PASSWORD, user = process.env.ADMIN_USER;
 const jar = () => ({ cookie: '' });
 async function call(mod, j, body, headers = {}) {
@@ -114,6 +114,13 @@ test('api', async t => {
     assert.ok(s.queued.some(q => q.id === 'KXRUN-T1'), 'a running market cannot be removed');
     s = (await call(admin, adm, { action: 'add', ticker: 'KXDONE-T1' })).state;
     assert.equal(s.queued.some(q => q.id === 'KXDONE-T1'), false, 'a finished market is not queued again');
+    assert.equal((await call(admin, jar(), { action: 'run', id: TK })).status, 401, 'run now needs a session');
+    assert.equal((await call(admin, adm, { action: 'run', id: 'KXRUN-T1' })).error, 'bad', 'a running market cannot be started again');
+    assert.equal((await call(admin, adm, { action: 'run', id: 'KXNOT-QUEUED' })).error, 'bad');
+    assert.equal((await call(admin, adm, { action: 'run', id: TK })).status, 200);
+    process.env.SUPERCAST_ENGINE = ''; const secret = process.env.CRON_SECRET; delete process.env.CRON_SECRET;
+    assert.equal((await call(admin, adm, { action: 'run', id: TK })).error, 'engine', 'with no secret the runner cannot be asked');
+    process.env.SUPERCAST_ENGINE = 'off'; if (secret) process.env.CRON_SECRET = secret;
     s = (await call(admin, adm, { action: 'retry', id: 'KXFAIL-T1' })).state;
     assert.deepEqual([s.failed, s.queued.at(-1).id], [[], 'KXFAIL-T1']);
   });

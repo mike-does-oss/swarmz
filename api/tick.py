@@ -7,6 +7,7 @@ would run and changes nothing.
 import hmac
 import json
 import os
+import re
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler
@@ -22,7 +23,11 @@ class handler(BaseHTTPRequestHandler):
         given = self.headers.get("authorization", "")
         if not secret or not hmac.compare_digest(given, f"Bearer {secret}"):
             return self._send(401, {"error": "auth"})
-        dry = parse_qs(urlparse(self.path).query).get("dry") == ["1"]
+        query = parse_qs(urlparse(self.path).query)
+        dry = query.get("dry") == ["1"]
+        only = (query.get("ticker") or [None])[0]       # run this queued market, not the oldest one
+        if only is not None and not (len(only) <= 64 and re.fullmatch(r"[A-Z0-9]{2,}(-[A-Z0-9.]+){1,4}", only)):
+            return self._send(400, {"error": "bad ticker"})
         lines = []
 
         def log(msg):
@@ -31,7 +36,7 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             from swarmz import cloud
-            out = cloud.tick(run=not dry, log=log)
+            out = cloud.tick(run=not dry, only=only, log=log)
             self._send(200, {**out, "log": lines})
         except Exception as e:
             traceback.print_exc()

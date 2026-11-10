@@ -588,7 +588,7 @@ let paint = null;                                          // set by the open vi
 function paintLive() { if (paint) paint(derive()); }
 function note(text, cls) { live.msg = { text, cls: cls || '' }; showMsg(''); }
 function showMsg(idle) { const m = $('#msg'); if (!m) return; m.className = 'msg ' + (live.msg ? live.msg.cls : ''); m.textContent = live.msg ? live.msg.text : idle; }
-const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', nomarket: 'Kalshi has no market with that ticker.', done: 'That one already has a finished run.', declined: 'That one was declined.', dup: 'You already submitted that.',
+const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', nomarket: 'Kalshi has no market with that ticker.', busy: 'Another run is in progress. Try again when it has finished.', runcap: 'The daily limit on runs has been reached.', engine: 'Could not reach the runner. Try again.', done: 'That one already has a finished run.', declined: 'That one was declined.', dup: 'You already submitted that.',
   cap: `You have ${MAX_MINE} submissions waiting for approval. Withdraw one first.`, rate: 'Too many submissions from this network today. Try again tomorrow.', full: 'The list is full for now. Try again later.',
   login: 'Wrong email or password.', locked: 'Too many attempts. Try again in 15 minutes.', auth: 'You are signed out. Sign in again.' };
 async function call(body) {
@@ -650,6 +650,7 @@ async function submitForm(f) {
 }
 const withdraw = id => { const e = derive().mine.find(i => i.id === id); if (e) write({ action: 'withdraw', id }, Cap(e) + ' withdrawn.'); };
 const decide = (e, status) => { if (e) write({ action: status === 'queued' ? 'approve' : 'decline', id: e.id }, Cap(e) + (status === 'queued' ? ' queued.' : ' declined.')); };
+const runNow = id => { if (!okTicker(id)) return; write({ action: 'run', id }, id + ' is starting. It shows as running in a few seconds.').then(ok => { if (ok) for (const ms of [5000, 15000]) setTimeout(connect, ms); }); };
 const retry = id => { if (okId(id)) write({ action: 'retry', id }, (okTicker(id) ? id : 'Question') + ' queued again.'); };
 const undecide = id => { if (okId(id)) write({ action: 'remove', id }, (okTicker(id) ? id : 'Question') + ' removed.'); };
 async function queueForm(f) {
@@ -790,7 +791,7 @@ function mountAdmin() {
     const sl = slots(d.queued);
     $('#a-sub').innerHTML = wait ? emptyRow(5, wait) : d.submitted.map(s => `<tr>${what(s, true)}${kindCell(s)}<td class="nw">${when(s.at)}</td><td class="n">${s.n}</td>
       <td class="act"><button class="btn yes" data-act="approve" data-id="${esc(s.id)}"${dis()}>Approve</button><button class="btn no" data-act="decline" data-id="${esc(s.id)}"${dis()}>Decline</button></td></tr>`).join('') || emptyRow(5, 'Nothing to approve');
-    $('#a-que').innerHTML = wait ? emptyRow(5, wait) : d.queued.map(q => `<tr>${what(q, true)}${kindCell(q)}<td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="act">${q.running ? '' : `<button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button>`}</td></tr>`).join('') || emptyRow(5, 'Nothing queued');
+    $('#a-que').innerHTML = wait ? emptyRow(5, wait) : d.queued.map(q => `<tr>${what(q, true)}${kindCell(q)}<td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="act">${q.running ? '' : `${q.kind === 'k' ? `<button class="btn yes" data-act="run" data-id="${esc(q.id)}"${dis()} data-tip="Run this market now, without waiting for its slot. Each run costs money.">Run now</button>` : ''}<button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button>`}</td></tr>`).join('') || emptyRow(5, 'Nothing queued');
     $('#a-rej').innerHTML = wait ? emptyRow(4, wait) : [
       ...d.failed.map(q => `<tr>${what(q)}${kindCell(q)}<td class="why"><span class="state bad">failed</span><small>${esc(q.note || 'No reason recorded')}</small></td><td class="act"><button class="btn" data-act="retry" data-id="${esc(q.id)}"${dis()}>Retry</button><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button></td></tr>`),
       ...d.rejected.map(q => `<tr>${what(q)}${kindCell(q)}<td class="nw">declined ${when(q.at)}</td><td class="act"><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Undo</button></td></tr>`)].join('') || emptyRow(4, 'Nothing declined or failed');
@@ -921,7 +922,7 @@ function watchRuns() {
 function go(name) { if (ADMIN) { location.href = '/#' + name; return; } try { if (location.hash !== '#' + name) location.hash = name; } catch (e) {} route(name); }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
-  if (b) { if (b.disabled) return; const id = b.dataset.id, act = b.dataset.act, sub = () => derive().submitted.find(s => s.id === id); return act === 'logout' ? logout() : act === 'retry' ? retry(id) : act === 'withdraw' ? withdraw(id) : act === 'approve' ? decide(sub(), 'queued') : act === 'decline' ? decide(sub(), 'rejected') : undecide(id); }
+  if (b) { if (b.disabled) return; const id = b.dataset.id, act = b.dataset.act, sub = () => derive().submitted.find(s => s.id === id); return act === 'logout' ? logout() : act === 'run' ? runNow(id) : act === 'retry' ? retry(id) : act === 'withdraw' ? withdraw(id) : act === 'approve' ? decide(sub(), 'queued') : act === 'decline' ? decide(sub(), 'rejected') : undecide(id); }
   const br = e.target.closest('[data-browse]'); if (br) { if (!br.disabled) browseMarkets(br.dataset.browse); return; }
   const m = e.target.closest('[data-mode]'); if (m) { live.mode = m.dataset.mode === 'own' ? 'own' : 'kalshi'; live.msg = null; applyMode(); return paintLive(); }
   const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); }

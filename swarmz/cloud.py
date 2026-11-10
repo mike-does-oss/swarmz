@@ -286,8 +286,9 @@ def next_queued(pg, done: set[str]) -> tuple[str | None, int]:
 
 # ------------------------------------------------------------------ the tick
 
-def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, log=print) -> dict:
-    """One scheduled pass. Returns a summary of what it did."""
+def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: str | None = None, log=print) -> dict:
+    """One scheduled pass. Returns a summary of what it did. With ``only``, the market to run is that queued
+    ticker and no other (the admin view's Run now), not the oldest in the queue."""
     started, holder, out = time.monotonic(), uuid.uuid4().hex[:12], {"ran": None, "failed": None, "published": False}
     left = lambda: budget_s - (time.monotonic() - started)
     use_work_dir()
@@ -312,6 +313,11 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, log=pr
         con.close()
 
         ticker, waiting = next_queued(pg, done)
+        if only:
+            ok = pg.execute("select 1 from queue where id = %s and status = 'queued' and kind = 'k'", [only]).fetchone()
+            if not ok or only in done:
+                log(f"{only} is not waiting in the queue")
+            ticker, waiting = (only, max(0, waiting)) if ok and only not in done else (None, 0)
         cap = int(os.environ.get("SWARMZ_QUEUE_MAX_PER_DAY", "12"))
         recent = pg.execute("select count(*) from queue where ran_at > now() - interval '24 hours'").fetchone()[0]
         if not ticker:
