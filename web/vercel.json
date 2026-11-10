@@ -5,7 +5,7 @@
   "outputDirectory": "public",
   "trailingSlash": false,
   "regions": ["iad1"],
-  "functions": { "api/*.js": { "maxDuration": 15 } },
+  "functions": { "api/*.js": { "maxDuration": 15 }, "api/markets.js": { "maxDuration": 60 } },
   "rewrites": [{ "source": "/wp-admin", "destination": "/index.html" }],
   "headers": [
     { "source": "/(.*)", "headers": [
