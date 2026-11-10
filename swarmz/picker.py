@@ -51,6 +51,11 @@ def builder_env() -> dict:
         env.pop(k, None)
         if v:
             env[k] = v
+    from .llm import backend
+    if backend() == "claude-code":            # no keys: the builder's model calls go through Claude Code too
+        env["LLM_BACKEND"] = "claude-code"
+        if not env.get("BRAVE_API_KEY"):      # and so does its web search, unless a Brave key is there
+            env["SEARCH_BACKEND"] = "claude-code"
     BRIEF_DATA_DIR.mkdir(parents=True, exist_ok=True)
     env["DATA_DIR"] = str(BRIEF_DATA_DIR)
     env.setdefault("BRIEF_LOG_DIR", str(BRIEF_DATA_DIR / "logs"))

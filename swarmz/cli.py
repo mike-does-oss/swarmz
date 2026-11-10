@@ -47,11 +47,50 @@ def health():
     except Exception as e:
         ok = False
         console.print(f"[red]FAIL[/] DuckDB registry: {e}")
-    present = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    ok &= present
-    console.print(f"[{'green' if present else 'red'}]{'ok' if present else 'FAIL'}[/]  ANTHROPIC_API_KEY "
-                  "(forecasts, discussion, lessons)")
+    try:
+        from .llm import backend
+        how = backend()
+        console.print("[green]ok[/]  model calls: " + ("the Anthropic API (ANTHROPIC_API_KEY)" if how == "api"
+                      else "Claude Code, on your Claude subscription (no API key; slower, and it uses your usage allowance)"))
+    except RuntimeError as e:
+        ok = False
+        console.print(f"[red]FAIL[/] model calls: {e}")
     raise typer.Exit(0 if ok else 1)
+
+
+@app.command()
+def ask(ticker: str = typer.Argument(..., help="A Kalshi market ticker, or a Kalshi market link"),
+        min_brief_words: int = typer.Option(800, help="Shortest brief to accept")):
+    """Forecast one Kalshi market from scratch: build its brief, make the single call, run the panel.
+    Sets up the registry and the panel first if this is a new install."""
+    from . import cloud, picker
+    os.environ.setdefault("SWARMZ_QUEUE_MIN_BRIEF_WORDS", str(min_brief_words))
+    t = ticker.strip().split("?")[0].rstrip("/").split("/")[-1].upper()
+    con = connect()
+    todo = [p for p in store.POPULATIONS if not store.count_personas(con, p, ("active", "elite"))]
+    if todo:
+        s = settings()
+        store.seed_population(con, s.population_size, s.agent_model, 0, populations=todo)
+        console.print(f"set up the panel ({s.population_size} agents)")
+    con.close()
+    console.print(f"[bold]{t}[/]: building the brief (a few minutes) ...")
+    why = cloud.run_market(t, log=console.print)
+    if why:
+        console.print(f"[red]could not forecast {t}[/]: {why}")
+        raise typer.Exit(1)
+    con = connect()
+    q = store.get_question(con, t)
+    run_id = rows(con, "SELECT run_id FROM runs WHERE question_id = ? AND arm = 'PANEL' AND status = 'complete' "
+                       "ORDER BY started_at DESC LIMIT 1", [t])[0]["run_id"]
+    agg = {r["method"]: r["prob"] for r in rows(con, "SELECT method, prob FROM aggregates WHERE run_id = ?", [run_id])}
+    single = rows(con, "SELECT f.prob FROM runs r JOIN forecasts f USING (run_id) WHERE r.question_id = ? AND r.arm = 'A0' "
+                       "AND r.status = 'complete' ORDER BY r.started_at DESC LIMIT 1", [t])
+    pct = lambda p: "-" if p is None else f"{p * 100:.1f}%"
+    console.print(f"\n[bold]{q['question_text']}[/]")
+    console.print(f"  panel final      {pct(agg.get('equal'))}")
+    console.print(f"  before talking   {pct(agg.get('prior'))}")
+    console.print(f"  single call      {pct(single[0]['prob'] if single else None)}")
+    console.print(f"  market price     {pct(q.get('market_prob'))}")
 
 
 @app.command()

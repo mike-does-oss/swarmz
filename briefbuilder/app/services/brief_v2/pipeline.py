@@ -21,6 +21,7 @@ from .scrubber import scrub
 from ..orderbook_snapshot import snapshot_order_book
 from .stage_llm import assembler_llm, scrubber_llm, warn_if_same_model
 from .brave_client import BraveSearchClient
+from .claude_search import ClaudeSearchClient
 from .article_fetcher import fetch_article as default_fetch_article
 from .odds_terms import find_odds_contamination
 from .provenance_builder import build_provenance, build_prediction_row
@@ -66,7 +67,7 @@ class BriefPipeline:
         min_words=1500, max_words=3000, max_queries=18,
     ):
         self.kalshi = kalshi or KalshiClient()
-        self.search_client = search_client or BraveSearchClient()
+        self.search_client = search_client or (ClaudeSearchClient() if Config.SEARCH_BACKEND == 'claude-code' else BraveSearchClient())
         self.fetch_article = fetch_article or default_fetch_article
         self.decomposer_llm = decomposer_llm or LLMClient()
         self.triage_llm = triage_llm or LLMClient()

@@ -26,6 +26,36 @@ registry is the **only** channel between questions.
 The brief builder (Decomposer, Assembler, Scrubber) lives in `briefbuilder/`. swarmz starts it as a
 child process and only consumes its frozen briefs; its model and keys are the `BRIEF_*` settings.
 
+## Try it with Claude Code, no API key
+
+If you have Claude Code and a Claude subscription, swarmz can make its model calls through Claude Code
+and needs no keys at all:
+
+```
+git clone https://github.com/mike-whypred/swarmz && cd swarmz
+uv sync
+uv run swarmz health                 # says which way model calls will go
+uv run swarmz ask KXFEDDECISION-26DEC-H25
+```
+
+`swarmz ask` takes any open Kalshi market ticker (or a link to the market). It sets up the registry and
+the ten-agent panel on first use, builds a research brief from the web, makes the single call, runs the
+panel's discussion, and prints the forecasts beside the market price. Everything is kept in
+`data/swarmz.duckdb`.
+
+How it differs from running on an API key:
+
+- It is chosen when `ANTHROPIC_API_KEY` is not set and the `claude` command is. `SWARMZ_LLM=claude-code`
+  forces it, `SWARMZ_LLM=api` forces the API.
+- Each call starts `claude -p` with tools, connectors, skills and settings switched off (see
+  `swarmz/claude_code.py`), so it is slower: expect a question to take ten minutes or more.
+- Nothing is billed per call, but a question reads several hundred thousand tokens, and that comes out of
+  your subscription's usage allowance. Usage is still counted in the `usage` table, at a cost of zero.
+- Web search goes through Claude Code's own search unless `BRIEF_BRAVE_API_KEY` is set. Its results are
+  thinner than Brave's, so briefs are more likely to be rejected for being too short or missing the
+  latest figure; `--min-brief-words` lowers the bar.
+- The scheduled cloud runs cannot use a subscription. They always use API keys.
+
 ## Running in the cloud
 
 Nothing has to stay switched on. A Vercel project (`swarmz-engine`, this folder) has one scheduled

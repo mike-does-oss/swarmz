@@ -24,8 +24,12 @@ class LLMClient:
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model = model or Config.LLM_MODEL_NAME
         
+        self.claude_code = Config.LLM_BACKEND == 'claude-code'
+        if self.claude_code:
+            self.client = None
+            return
         if not self.api_key:
-            raise ValueError("LLM_API_KEY 未配置")
+            raise ValueError("LLM_API_KEY is not set")
         
         self.client = OpenAI(
             api_key=self.api_key,
@@ -51,6 +55,14 @@ class LLMClient:
         Returns:
             模型响应文本
         """
+        if self.claude_code:
+            from swarmz import claude_code
+            system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+            user = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
+            if response_format:
+                system += "\nReturn one JSON object only, no prose."
+            content = claude_code.ask(system or "You are a careful research assistant.", user, model=self.model)
+            return re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         kwargs = {
             "model": self.model,
             "messages": messages,

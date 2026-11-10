@@ -20,6 +20,14 @@ class Config:
     SCRUBBER_BASE_URL = os.environ.get('SCRUBBER_BASE_URL', LLM_BASE_URL)
     SCRUBBER_API_KEY = os.environ.get('SCRUBBER_API_KEY', LLM_API_KEY)
 
+    # "claude-code" sends model calls, or web searches, through Claude Code on a Claude subscription: no keys needed.
+    LLM_BACKEND = os.environ.get('LLM_BACKEND', 'api')
+    SEARCH_BACKEND = os.environ.get('SEARCH_BACKEND', 'brave')
+    if LLM_BACKEND == 'claude-code':
+        LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'claude-haiku-5-5')
+        ASSEMBLER_MODEL = os.environ.get('ASSEMBLER_MODEL', 'claude-sonnet-5-5')
+        SCRUBBER_MODEL = os.environ.get('SCRUBBER_MODEL', 'claude-haiku-5-5')
+
     KALSHI_API_BASE = os.environ.get('KALSHI_API_BASE', 'https://external-api.kalshi.com/trade-api/v2')
     BRAVE_API_KEY = os.environ.get('BRAVE_API_KEY', '')
 

@@ -63,13 +63,41 @@ class AnthropicLLM:
         return parse_json(text)
 
 
+class ClaudeCodeLLM:
+    """The same calls, made through Claude Code on a Claude subscription. See swarmz.claude_code."""
+
+    def json(self, system, user, *, model, max_tokens=1024, temperature=None):
+        from . import claude_code
+        text = claude_code.ask(system + "\nReturn JSON only, no prose.", user, model=model)
+        try:
+            return parse_json(text)
+        except LLMOutputError:      # one more try, saying what was wrong
+            text = claude_code.ask(system + "\nReturn JSON only, no prose. Your last answer was not valid JSON.", user, model=model)
+            return parse_json(text)
+
+
+def backend() -> str:
+    """Where model calls go: "api" (an Anthropic API key) or "claude-code" (a Claude subscription, through Claude Code).
+    SWARMZ_LLM picks one; otherwise the API when a key is set, else Claude Code when it is installed."""
+    from . import claude_code
+    want = os.environ.get("SWARMZ_LLM", "").strip().lower()
+    if want in ("api", "claude-code"):
+        return want
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "api"
+    if claude_code.available():
+        return "claude-code"
+    raise RuntimeError("no way to reach a model: set ANTHROPIC_API_KEY, or install Claude Code and sign in "
+                       "(then swarmz uses your Claude subscription)")
+
+
 _default: LLM | None = None
 
 
 def default_llm() -> LLM:
     global _default
     if _default is None:
-        _default = AnthropicLLM()
+        _default = ClaudeCodeLLM() if backend() == "claude-code" else AnthropicLLM()
     return _default
 
 

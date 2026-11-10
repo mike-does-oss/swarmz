@@ -110,6 +110,8 @@ def _price_for(model: str) -> dict | None:
 
 
 def cost(model: str, counts: dict) -> float | None:
+    if model.startswith("subscription/"):   # made through Claude Code on a subscription: nothing is billed per call
+        return 0.0
     p = _price_for(model)
     if p is None:
         return None
