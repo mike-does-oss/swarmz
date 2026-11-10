@@ -33,6 +33,7 @@ from ..diversity import CHALLENGER, CHALLENGER_AFTER
 from ..llm import LLM, default_llm
 from ..registry import asof, store
 from ..timeutil import now
+from .. import progress
 
 
 @dataclass(frozen=True)
@@ -239,6 +240,12 @@ def _swarm(con, spec, q, question, brief, run_id, llm, swarm, seed, workers):
             for p, prof in personas],
         max_rounds=s.discussion_rounds, seed=seed,
     )
+    progress.emit("panel", question_id=q["question_id"], question=q["question_text"], market=q.get("market_prob"),
+                  rounds=s.discussion_rounds,
+                  agents=[{"id": p["persona_id"], "name": p.get("display_name") or "",
+                           "method": (p.get("base_prompt") or "").split("Your method:")[-1].strip(),
+                           "challenger": bool(seats and seats[p["persona_id"]].challenger),
+                           "lenses": list(seats[p["persona_id"]].lenses) if seats else []} for p, _ in personas])
     result = swarm(req)
     # keep the thread and who read what with the run: for debugging, and for the app to replay
     extra = {"swarm_meta": result.meta}
@@ -255,7 +262,9 @@ def _swarm(con, spec, q, question, brief, run_id, llm, swarm, seed, workers):
                      "RESEARCH BRIEF"))
         stages.append(AgentStage(pid, prior.prob if prior else None, prior.rationale if prior else "",
                                  a.public_prob if a else None))
-    return _elicit_many(llm, jobs, question, workers), result.native_prob, stages
+    finals = _elicit_many(llm, jobs, question, workers)
+    progress.emit("final", forecasts=[{"id": f.persona_id, "prob": f.prob, "why": f.rationale} for f in finals])
+    return finals, result.native_prob, stages
 
 
 def _swarm_context(brief: str, a, prior: AgentForecast | None = None, challenger: bool = False) -> str:

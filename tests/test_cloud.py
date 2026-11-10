@@ -54,3 +54,37 @@ def test_next_queued_skips_and_marks_markets_the_registry_already_finished():
     assert cloud.next_queued(pg, {"KXOLD-T1"}) == ("KXNEW-T1", 1)
     assert pg.done == ["KXOLD-T1"]
     assert cloud.next_queued(FakePg([]), set()) == (None, 0)
+
+
+class LivePg:
+    def __init__(self):
+        self.saved = []
+
+    def execute(self, sql, args=()):
+        import json
+        self.saved.append(json.loads(args[0]))
+
+
+def test_live_run_follows_a_run_in_the_shape_the_site_replays():
+    pg = LivePg()
+    live = cloud.LiveRun(pg, "KXT-1", "Will it?")
+    assert (pg.saved[-1]["stage"], pg.saved[-1]["run"], pg.saved[-1]["active"]) == ("brief", None, True)
+    live("panel", {"question_id": "KXT-1", "question": "Will it?", "market": 0.4, "rounds": 2,
+                   "agents": [{"id": "p2", "name": "", "method": "m2", "challenger": True, "lenses": ["facts"]},
+                              {"id": "p1", "name": "", "method": "m1", "challenger": False, "lenses": ["numbers"]}]})
+    thread = [{"round": 0, "persona_id": "p1", "name": "Sober Newt", "prob": 0.3, "text": "alone"},
+              {"round": 0, "persona_id": "p2", "name": "Calm Vole", "prob": 0.6, "text": "alone too"}]
+    live("thread", {"round": 0, "rounds": 2, "thread": thread})
+    run = pg.saved[-1]["run"]
+    assert [(a["id"], a["name"], a["alone"]) for a in run["agents"]] == [("p1", "Sober Newt", 0.3), ("p2", "Calm Vole", 0.6)]
+    assert (run["live_done"], len(run["posts"])) == (0, 2)
+    thread = thread + [{"round": 1, "persona_id": "p2", "name": "Calm Vole", "prob": 0.5, "text": "Newt has a point", "likes": ["p1"]}]
+    live("thread", {"round": 1, "rounds": 2, "thread": thread})
+    post = pg.saved[-1]["run"]["posts"][-1]
+    assert (post["answers"], post["likes"], pg.saved[-1]["run"]["live_done"]) == (["p1"], ["p1"], 1)
+    live("final", {"forecasts": [{"id": "p1", "prob": 0.4, "why": "a"}, {"id": "p2", "prob": 0.5, "why": "b"}]})
+    run = pg.saved[-1]["run"]
+    assert (run["live_done"], round(run["aggregates"]["equal"], 3), run["agents"][0]["final"]) == (3, 0.45, 0.4)
+    live.close(None)
+    assert (pg.saved[-1]["active"], pg.saved[-1]["stage"]) == (False, "done")
+    assert [d["rev"] for d in pg.saved] == list(range(1, len(pg.saved) + 1))

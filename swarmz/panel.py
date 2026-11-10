@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from . import progress
 from .bridge import SwarmAgent, SwarmRequest, SwarmResult
 from .config import settings
 from .llm import LLM, LLMOutputError
@@ -126,6 +127,7 @@ def run(req: SwarmRequest, *, llm: LLM, workers: int = 8) -> SwarmResult:
                            "text": _one_line(p.prior_rationale or "No reason given.", OPENING_CHARS)})
     silent = 0
     rounds = max(0, int(req.max_rounds))
+    progress.emit("thread", round=0, rounds=rounds, thread=list(thread))
     for r in range(1, rounds + 1):
         seen = list(thread)   # everyone in a round reads the same thread
 
@@ -142,6 +144,7 @@ def run(req: SwarmRequest, *, llm: LLM, workers: int = 8) -> SwarmResult:
             thread.append({"round": r, "persona_id": p.persona_id, "name": names[p.persona_id],
                            "prob": s.prob, "text": _one_line(s.post, POST_CHARS),
                            "likes": liked(s.likes, p.persona_id, seen)})   # each is that member's latest post in `seen`
+        progress.emit("thread", round=r, rounds=rounds, thread=list(thread))
     agents = []
     for i, p in enumerate(req.personas):
         mine = [e for e in thread if e["persona_id"] == p.persona_id]

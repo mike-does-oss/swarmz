@@ -166,6 +166,67 @@ def publish(pg, log=print) -> bool:
     return True
 
 
+# ------------------------------------------------------------------ watching a run on the site
+
+class LiveRun:
+    """Keeps site_data['live'] up to date while a market runs, in the shape the site replays a finished run from."""
+
+    def __init__(self, pg, ticker: str, title: str | None):
+        self.pg, self.rev = pg, 0
+        self.doc = {"active": True, "stage": "brief", "ticker": ticker, "title": title or ticker,
+                    "started": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), "run": None}
+        self.save()
+
+    def save(self) -> None:
+        self.rev += 1
+        self.doc["rev"] = self.rev
+        self.pg.execute("insert into site_data (key, value) values ('live', %s) "
+                        "on conflict (key) do update set value = excluded.value, updated_at = now()", [json.dumps(self.doc)])
+
+    def __call__(self, kind: str, data: dict) -> None:
+        import re
+        run = self.doc["run"]
+        if kind == "panel":
+            now_ = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+            self.doc["stage"] = "panel"
+            self.doc["run"] = {
+                "run_id": "live", "question_id": data["question_id"], "question": data["question"], "split": "",
+                "market": data.get("market"), "outcome": None, "brier": None, "rounds": data["rounds"], "silent": 0,
+                "a0": None, "aggregates": {}, "usage": [], "has_likes": True, "started": now_, "finished": now_,
+                "secs": 0, "sd_alone": None, "sd_final": None, "posts": [], "live_done": -1,
+                "agents": [{**a, "alone": None, "final": None, "why": ""} for a in data["agents"]]}
+        elif kind == "thread" and run:
+            names = {e["persona_id"]: e["name"] for e in data["thread"]}
+            hit = lambda nm, text: bool(re.search(r"\b" + re.escape(nm) + r"\b", text))
+            run["posts"] = [{"i": i, "round": e["round"], "agent": e["persona_id"], "prob": e["prob"], "text": e["text"],
+                             "answers": [pid for pid, nm in names.items() if pid != e["persona_id"]
+                                         and (hit(nm, e["text"]) or hit(nm.split()[-1], e["text"]))],
+                             "likes": e.get("likes", [])} for i, e in enumerate(data["thread"])]
+            opening = {e["persona_id"]: e["prob"] for e in data["thread"] if e["round"] == 0}
+            order = [e["persona_id"] for e in data["thread"] if e["round"] == 0]
+            for a in run["agents"]:
+                a["name"], a["alone"] = names.get(a["id"]) or a["name"], opening.get(a["id"])
+            run["agents"].sort(key=lambda a: order.index(a["id"]) if a["id"] in order else len(order))
+            run["live_done"] = data["round"]             # the opening is step 0; round r is step r
+        elif kind == "final" and run:
+            got = {f["id"]: f for f in data["forecasts"]}
+            for a in run["agents"]:
+                f = got.get(a["id"])
+                if f:
+                    a["final"], a["why"] = f["prob"], f.get("why") or ""
+            probs = [a["final"] for a in run["agents"] if a["final"] is not None]
+            run["aggregates"] = {"equal": sum(probs) / len(probs)} if probs else {}
+            run["live_done"] = run["rounds"] + 1
+            run["finished"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        else:
+            return
+        self.save()
+
+    def close(self, why: str | None) -> None:
+        self.doc.update({"active": False, "stage": "failed" if why else "done", "failed": why})
+        self.save()
+
+
 # ------------------------------------------------------------------ one market
 
 def finished(con) -> set[str]:
@@ -261,8 +322,23 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, log=pr
             log(f"daily cap of {cap} reached; {ticker} waits")
         else:
             log(f"running {ticker} ({waiting} more waiting)")
-            pg.execute("update queue set status = 'running', ran_at = now(), note = null where id = %s", [ticker])
-            why = run_market(ticker, log)
+            title = pg.execute("update queue set status = 'running', ran_at = now(), note = null where id = %s returning text", [ticker]).fetchone()
+            from . import progress
+            live = None
+            try:                                 # showing the run on the site is optional; the run is not
+                live = LiveRun(pg, ticker, title[0] if title else None)
+                progress.set_sink(live)
+            except Exception as e:
+                log(f"live view unavailable: {type(e).__name__}: {str(e)[:200]}")
+            try:
+                why = run_market(ticker, log)
+            finally:
+                progress.set_sink(None)
+            try:
+                if live:
+                    live.close(why)
+            except Exception as e:
+                log(f"live view not closed: {type(e).__name__}: {str(e)[:200]}")
             pg.execute("update queue set status = %s, note = %s where id = %s", ["failed" if why else "done", why, ticker])
             out["failed" if why else "ran"] = ticker
             if why:
