@@ -362,7 +362,7 @@
   .submit textarea { resize: vertical; min-height: 46px; line-height: 1.4; } .submit input.up { text-transform: uppercase; }
   .submit input:focus-visible, .submit textarea:focus-visible { outline: 2px solid var(--core); outline-offset: 1px; }
   .submit input::placeholder, .submit textarea::placeholder { text-transform: none; color: var(--faint); }
-  .ov td small.rule { color: var(--text2); font-size: 11px; margin-top: 3px; } .qid { margin-left: 8px; font-family: var(--mono); }
+  .ov td small.rule { color: var(--text2); font-size: 11px; margin-top: 3px; } .qid { margin-left: 8px; font-family: var(--mono); } .qid.first { margin-left: 0; }
   .ov td.own[data-tip] { cursor: help; } .ov td.n small { white-space: nowrap; }
   .card > header + .submit { box-shadow: none; border-bottom: 1px solid var(--line); border-radius: 0; }
   .msg { margin: 0; font-size: 11px; color: var(--text2); flex-basis: 100%; overflow-wrap: anywhere; } .msg:empty { display: none; }
@@ -541,7 +541,7 @@ function derive() {                                        // these rows were wr
     const e = !r ? null : okTicker(r.id) ? { id: r.id, kind: 'k' } : own(r);
     if (!e || e.id !== r.id || FINISHED.has(e.id) || seen.has(e.id)) return null;
     seen.add(e.id);
-    return { ...e, at: stamp(r.at), n: Number.isInteger(r.n) && r.n > 0 ? r.n : 1, mine: r.mine === true, running: r.running === true, note: typeof r.note === 'string' ? r.note.slice(0, 400) : '' };
+    return { ...e, at: stamp(r.at), n: Number.isInteger(r.n) && r.n > 0 ? r.n : 1, mine: r.mine === true, running: r.running === true, title: e.kind === 'k' && typeof r.title === 'string' ? squash(r.title).slice(0, 200) : '', note: typeof r.note === 'string' ? r.note.slice(0, 400) : '' };
   }).filter(Boolean).sort(byAt);
   const queued = clean(s.queued), rejected = clean(s.rejected), failed = clean(s.failed), submitted = clean(s.submitted);
   return { queued, rejected, failed, submitted, mine: submitted.filter(x => x.mine) };
@@ -551,7 +551,7 @@ let paint = null;                                          // set by the open vi
 function paintLive() { if (paint) paint(derive()); }
 function note(text, cls) { live.msg = { text, cls: cls || '' }; showMsg(''); }
 function showMsg(idle) { const m = $('#msg'); if (!m) return; m.className = 'msg ' + (live.msg ? live.msg.cls : ''); m.textContent = live.msg ? live.msg.text : idle; }
-const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', done: 'That one already has a finished run.', declined: 'That one was declined.', dup: 'You already submitted that.',
+const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', nomarket: 'Kalshi has no market with that ticker.', done: 'That one already has a finished run.', declined: 'That one was declined.', dup: 'You already submitted that.',
   cap: `You have ${MAX_MINE} submissions waiting for approval. Withdraw one first.`, rate: 'Too many submissions from this network today. Try again tomorrow.', full: 'The list is full for now. Try again later.',
   login: 'Wrong email or password.', locked: 'Too many attempts. Try again in 15 minutes.', auth: 'You are signed out. Sign in again.' };
 async function call(body) {
@@ -629,7 +629,7 @@ async function loginForm(f) {
 const logout = () => write({ action: 'logout' }, 'Signed out.');
 // the cells of a queue or submission row: a ticker or the question with its date and rule, its type, and its run slot
 const what = (e, full) => { const yours = e.mine && !full ? '<span class="flag">yours</span>' : '';
-  return e.kind !== 'q' ? `<td class="tk">${esc(e.id)}${yours}</td>`
+  return e.kind !== 'q' ? (e.title ? `<td class="qc">${esc(e.title)}${yours}<small><span class="qid first">${esc(e.id)}</span></small></td>` : `<td class="tk">${esc(e.id)}${yours}</td>`)
     : `<td class="qc own"${full ? '' : ` tabindex="0" data-tip="${esc('Resolves YES if\n' + e.criteria)}"`}>${esc(e.text)}${yours}${full ? `<small class="rule">YES if ${esc(e.criteria)}</small>` : ''}<small>resolves ${esc(e.resolves)}${full ? `<span class="qid">${esc(e.id)}</span>` : ''}</small></td>`; };
 const kindCell = e => `<td class="nw">${e.kind === 'q' ? 'Own question' : 'Kalshi'}</td>`;
 const EVERY = 2 * 3600 * 1000;                             // queued Kalshi markets run one per slot, oldest first

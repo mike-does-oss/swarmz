@@ -1,5 +1,6 @@
 // The public API: read the queue and what is waiting for approval, submit one, withdraw your own.
 import { fail, ipHash, json, newViewer, readPost, viewer } from '../lib/auth.js';
+import { titled } from '../lib/kalshi.js';
 import { entry, readState, submit, validId, withdraw } from '../lib/store.js';
 
 export async function GET(request) {
@@ -13,6 +14,7 @@ export async function POST(request) {
     let who = viewer(request), headers = {};
     if (body.action === 'submit') {
       const e = entry(body); if (!e) return fail('bad');
+      if (!await titled(e)) return fail('nomarket', 404);
       if (!who) { const v = newViewer(request); who = v.id; headers = { 'set-cookie': v.cookie }; }
       const { error, state } = await submit(e, who, ipHash(request));
       return error ? fail(error, error === 'rate' || error === 'full' ? 429 : 409) : json({ admin: false, state }, 200, headers);

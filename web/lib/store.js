@@ -13,7 +13,7 @@ export function entry(body) {
 }
 export const validId = id => okId(id);
 
-const row = r => ({ id: r.id, kind: r.kind, ...(r.kind === 'q' ? { text: r.text, resolves: r.resolves, criteria: r.criteria } : {}), at: new Date(r.at).toISOString() });
+const row = r => ({ id: r.id, kind: r.kind, ...(r.kind === 'q' ? { text: r.text, resolves: r.resolves, criteria: r.criteria } : r.text ? { title: r.text } : {}), at: new Date(r.at).toISOString() });
 const pendingQ = (sql, who) => sql`
   select id, kind, text, resolves, criteria, at, n, mine from (
     select s.id, s.kind, s.text, s.resolves, s.criteria, s.at,
@@ -69,7 +69,7 @@ export const retry = async id => (await run(sql => [sql`update queue set status 
 export const remove = async id => (await run(sql => [sql`delete from queue where id = ${id} and status <> 'running'`], null, true)).state;
 export const add = async e => (await run(sql => [sql`
   insert into queue (id, kind, status, text, resolves, criteria) values (${e.id}, ${e.kind}, 'queued', ${e.text}, ${e.resolves}, ${e.criteria})
-  on conflict (id) do update set status = 'queued', at = now(), note = null where queue.status in ('rejected', 'failed')`], null, true)).state;
+  on conflict (id) do update set status = 'queued', at = now(), note = null, text = coalesce(excluded.text, queue.text) where queue.status in ('rejected', 'failed')`], null, true)).state;
 
 // Sign in attempts: five wrong tries from one address in 15 minutes locks it out, and so do sixty from anywhere in an hour.
 export async function locked(ip) {

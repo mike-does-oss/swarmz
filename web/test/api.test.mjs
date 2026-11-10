@@ -6,6 +6,7 @@ import { db } from '../lib/db.js';
 import * as state from '../api/state.js';
 import * as admin from '../api/admin.js';
 
+process.env.SUPERCAST_KALSHI_LOOKUP = 'off';   // the tickers here are made up
 const ORIGIN = 'http://localhost:3210', pw = process.env.TEST_PASSWORD, user = process.env.ADMIN_USER;
 const jar = () => ({ cookie: '' });
 async function call(mod, j, body, headers = {}) {

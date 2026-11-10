@@ -1,6 +1,7 @@
 // The admin API behind /wp-admin. Every call but sign in needs the signed session cookie.
 import { checkLogin, clearSession, fail, ipHash, json, readPost, session, sessionCookie } from '../lib/auth.js';
 import { COSTS } from '../lib/generated.js';
+import { titled } from '../lib/kalshi.js';
 import { add, decide, entry, failedLogin, locked, readState, remove, retry, validId } from '../lib/store.js';
 
 const page = async user => ({ admin: true, user, state: await readState(null, true), costs: COSTS });
@@ -24,7 +25,7 @@ export async function POST(request) {
     if (body.action === 'logout') return json({ admin: false }, 200, { 'set-cookie': clearSession(request) });
     const user = session(request); if (!user) return fail('auth', 401);
     let state;
-    if (body.action === 'add') { const e = entry(body); if (!e) return fail('bad'); state = await add(e); }
+    if (body.action === 'add') { const e = entry(body); if (!e) return fail('bad'); if (!await titled(e)) return fail('nomarket', 404); state = await add(e); }
     else if (!validId(body.id)) return fail('bad');
     else if (body.action === 'approve') state = await decide(body.id, 'queued');
     else if (body.action === 'decline') state = await decide(body.id, 'rejected');
