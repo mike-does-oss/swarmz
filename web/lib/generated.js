@@ -1,0 +1,3 @@
+// Written by build.mjs. Do not edit.
+export const FINISHED = ["KXTRUMPAPPROVE-26NOV10-U38.8"];
+export const COSTS = {"generated":"2026-11-10 04:55 UTC","runs":[{"run_id":"rfc7feb5e3d","ticker":"KXTRUMPAPPROVE-26NOV10-U38.8","question":"Will Trump's RCP approval average be below 38.8 on Nov 10, 2026?","finished":"2026-11-10 03:13:33","brief":0.2147,"single":0.001,"forecasts":0.0244,"discussion":0.0707,"calls":75,"tokens_read":695386}]};

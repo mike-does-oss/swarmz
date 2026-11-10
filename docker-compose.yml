@@ -1,0 +1,13 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest   # pin a digest once a version is known-good
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"   # graph DB, localhost only
+      - "127.0.0.1:3000:3000"   # FalkorDB browser UI
+    environment:
+      - REDIS_ARGS=--maxmemory 3gb   # REDIS_ARGS is the variable the falkordb image passes to redis-server
+    volumes:
+      - falkor_data:/var/lib/falkordb/data
+volumes:
+  falkor_data:

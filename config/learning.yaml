@@ -1,0 +1,23 @@
+# Learning defaults (Component 6/7). Starting points to tune, not fixed choices.
+weighting:
+  min_n: 30          # scored forecasts before a persona gets its own weight
+  k: 10.0            # weight = exp(-k * mean relative Brier)
+  extremize_a: 1.0   # aggregate = logistic(a * weighted mean log-odds); 1.0 = off
+calibration:
+  method: platt
+  min_fit_n: 50      # resolved train questions before the first fit
+  refit_every: 20    # newly resolved questions between refits
+  source_method: weighted   # aggregate fed into the fit
+selection:
+  select_every: 20   # newly resolved train questions between evolve runs
+  min_n: 30
+  cull_pct: 0.20
+  explore_pct: 0.10  # share of the population replaced by fresh personas
+  elite_quantile: 0.20
+lessons:
+  max_per_question: 3
+  active_cap: 10
+  review_first_n: 20 # write lessons + lint to reports/lessons_review.md for this many questions
+probability:
+  clip_low: 0.01
+  clip_high: 0.99

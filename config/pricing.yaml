@@ -1,0 +1,14 @@
+# USD per million tokens. Used to price the token counts swarmz records per run.
+# Claude prices: Anthropic first-party API list prices as of 2026-10-06 (claude-api skill).
+# cache_write = 5-minute cache write (1.25x input); cache_read = cached input reads.
+# Haiku 5.5 is $0.50 / $2.50 for prompts over 100K tokens; swarmz prompts stay far below that.
+# Unknown models are recorded with cost = null and flagged in `swarmz report --section cost`.
+models:
+  claude-haiku-5-5:  {input: 0.10, output: 0.50, cache_read: 0.01, cache_write: 0.125}
+  claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.20, cache_write: 2.50}
+  claude-opus-5-5:   {input: 4.00, output: 20.00, cache_read: 0.20, cache_write: 5.00}
+  claude-haiku-4-5:  {input: 1.00, output: 5.00, cache_read: 0.10, cache_write: 1.25}
+  claude-sonnet-5:   {input: 2.00, output: 10.00, cache_read: 0.20, cache_write: 2.50}   # brief builder assembler/scrubber
+  # OpenAI embeddings (Graphiti). Check https://openai.com/api/pricing if this changes.
+  text-embedding-3-small: {input: 0.02, output: 0.0, cache_read: 0.0, cache_write: 0.0}
+  text-embedding-3-large: {input: 0.13, output: 0.0, cache_read: 0.0, cache_write: 0.0}

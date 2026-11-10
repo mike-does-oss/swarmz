@@ -1,0 +1,9 @@
+# Training cutoffs per model. The backtest runner refuses any question that
+# resolved on or before the latest cutoff among the models in a run.
+# OPEN DECISION: confirm these dates against each provider's model card.
+training_cutoffs:
+  claude-haiku-5-5: "2026-06-30"
+  claude-sonnet-5-5: "2026-06-30"
+  claude-opus-5-5: "2026-06-30"
+  claude-haiku-4-5: "2025-02-28"
+  claude-sonnet-5: "2025-12-31"

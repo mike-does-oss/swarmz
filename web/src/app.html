@@ -1,0 +1,1289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Supercast</title>
+<meta name="description" content="Supercast puts a yes or no question to a panel of ten forecasting agents, lets them argue it out, and pools their forecasts. Research prototype.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0e13'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23e8b84a'/%3E%3Ccircle cx='7' cy='9' r='2.5' fill='%235b9cf0'/%3E%3Ccircle cx='25' cy='10' r='2.5' fill='%233fc1b0'/%3E%3Ccircle cx='9' cy='25' r='2.5' fill='%23f08a4b'/%3E%3Ccircle cx='24' cy='24' r='2.5' fill='%23c3c9d4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root { padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
+  body { margin: 0; } img { max-width: 100%; } [hidden] { display: none !important; }
+  /* Two views under one header. Overview: figures for every panel run and for the registry as a whole;
+     it scrolls. Run replay: one screen, described next.
+     Layout: one screen. A 3D graph of the panel fills the stage and turns as the rounds play.
+     Posts, replies and likes pop on the graph at the moment they happen and scroll past in the
+     terminal on the right. Agents sit over the graph's left edge; playback, the forecast chart
+     and the run's figures run along the bottom. Single dark look by choice. */
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e15; --panel: #151a25; --panel-2: #1f2634; --line: #343d4f; --term: #080b12; --glow: #1b2540;
+    --ink: #ecebe6; --text2: #c5cad3; --dim: #a9b1bf; --faint: #7a8496;
+    --yes: #45dfbe; --no: #ff6d5b; --core: #9d8cf5; --like: #ff5c8a;
+    --space: radial-gradient(1.5px 1.5px at 23px 31px, rgba(255,255,255,.75), transparent 60%) 0 0 / 190px 170px, radial-gradient(1.2px 1.2px at 111px 87px, rgba(200,215,255,.65), transparent 60%) 0 0 / 230px 210px, radial-gradient(1.8px 1.8px at 67px 139px, rgba(255,255,255,.45), transparent 60%) 0 0 / 310px 270px, radial-gradient(circle at 20% 16%, rgba(78, 120, 208, .5) 0, transparent 42%), radial-gradient(circle at 84% 80%, rgba(120, 90, 206, .4) 0, transparent 46%), radial-gradient(circle at 62% 42%, rgba(46, 140, 178, .26) 0, transparent 38%), radial-gradient(circle at 50% 50%, #1c2a48 0, #121b30 62%, #0b111f 100%);
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { background: radial-gradient(circle at 12% -8%, #17233f 0, transparent 46%), radial-gradient(circle at 96% 4%, #1f1a3d 0, transparent 40%), var(--bg); background-attachment: fixed; color: var(--ink); font: 400 12px/1.45 var(--mono); }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:focus-visible, input:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--core); outline-offset: 2px; }
+
+  .app { height: 100%; display: flex; flex-direction: column; gap: 10px; padding-block: 10px;
+         padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); overflow: hidden; }
+
+  .bar { display: flex; align-items: center; gap: 12px; padding: 9px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+  .bar .chip { flex: none; font-weight: 700; font-size: 11px; letter-spacing: .06em; padding: 4px 8px; border-radius: 5px; background: var(--core); color: var(--bg); }
+  .bar h1 { margin: 0; font: 700 13px/1.3 var(--mono); letter-spacing: .02em; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .bar .counts { flex: none; color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+
+  .mid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 10px; min-height: 0; }
+  .stagewrap { position: relative; min-width: 0; min-height: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+               background: var(--space); border-color: #3a4763; }
+  .stage { position: absolute; inset: 0; touch-action: pan-y; cursor: grab; }
+  .stage.drag { cursor: grabbing; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #pills { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .pill { position: absolute; left: 0; top: 0; pointer-events: auto; white-space: nowrap; font: 500 11px/1 var(--mono); padding: 5px 9px; border-radius: 999px;
+          border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 20%, #0c1322); color: var(--ink); will-change: transform; }
+  .pill b { font-weight: 700; color: var(--c); margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .pill i { font-style: normal; color: var(--like); margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .pill i:empty { display: none; }
+  .pill.ch { border-style: dashed; }
+  .pill.sel { background: color-mix(in srgb, var(--c) 44%, #0c1322); }
+  .tag { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 10px; color: var(--text2); letter-spacing: .04em; will-change: transform; }
+  .bub { position: absolute; left: 0; top: 0; pointer-events: auto; width: max-content; max-width: 230px; text-align: left; font: 400 10.5px/1.35 var(--mono); padding: 6px 8px;
+         border-radius: 7px; border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 12%, var(--term)); color: var(--text2); will-change: transform, opacity; }
+  .bub b { color: var(--c); font-weight: 700; }
+  .bub em { font-style: normal; color: var(--ink); font-weight: 700; margin-left: 4px; }
+  .bub span { display: block; margin-top: 2px; }
+
+  .legend { position: absolute; left: 10px; top: 10px; width: 306px; background: color-mix(in srgb, #0f1524 88%, transparent); backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px 8px; }
+  .legend .lh { display: grid; grid-template-columns: minmax(0, 1fr) 4ch 4ch; gap: 8px; color: var(--faint); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 0 6px 5px; }
+  .legend .lh span + span { text-align: right; }
+  .legend ul { list-style: none; margin: 0; padding: 0; }
+  .legend li button { width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr) 4ch 4ch; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 5px; text-align: left; }
+  .legend li button:hover, .legend li button.sel { background: var(--panel-2); }
+  .legend .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+  .legend .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend .nm i { font-style: normal; color: var(--faint); font-size: 10px; margin-left: 5px; }
+  .legend .lk { color: var(--like); text-align: right; font-variant-numeric: tabular-nums; }
+  .legend .pv { color: var(--c); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  .legend .mode { display: flex; align-items: center; gap: 6px; margin-top: 7px; padding: 7px 6px 0; border-top: 1px solid var(--line); color: var(--faint); }
+  .legend .mode button { padding: 2px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--dim); }
+  .legend .mode button[aria-pressed="true"] { border-color: var(--core); color: var(--ink); }
+  .legend .scale { display: flex; align-items: center; gap: 6px; padding: 6px 6px 0; color: var(--faint); font-size: 10px; }
+  .legend .scale span.g { flex: 1; height: 5px; border-radius: 3px; background: linear-gradient(90deg, var(--no), var(--ink), var(--yes)); }
+  .legend .hint { padding: 7px 6px 0; color: var(--faint); font-size: 10px; }
+
+  .stepname { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: var(--text2); pointer-events: none; white-space: nowrap; }
+  .readout { position: absolute; right: 12px; bottom: 9px; color: var(--dim); font-size: 10px; letter-spacing: .04em; pointer-events: none; font-variant-numeric: tabular-nums; }
+
+  .term { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--term); border: 1px solid var(--line); border-radius: 8px; }
+  .termhead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 11px; }
+  .termhead strong { color: var(--ink); font-weight: 700; }
+  .termhead span { font-variant-numeric: tabular-nums; text-align: right; }
+  .termhead .lk { color: var(--like); }
+  #sel { margin: 8px 8px 0; padding: 9px 10px; border: 1px solid var(--core); border-radius: 7px; background: var(--panel-2); max-height: 45%; overflow-y: auto; }
+  #sel .x { float: right; color: var(--dim); padding: 0 2px 4px 8px; }
+  #sel .k { color: var(--faint); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+  #sel .ph { display: flex; align-items: baseline; gap: 7px; margin-top: 3px; }
+  #sel .nm { color: var(--c); font-weight: 700; }
+  #sel .ch { color: var(--faint); font-size: 10px; }
+  #sel .pv { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #sel p { margin: 5px 0 0; color: var(--text2); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+  #sel .pf { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; color: var(--dim); font-size: 10.5px; }
+  #sel .pf b { font-weight: 500; }
+  #sel dl { margin: 6px 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; font-size: 11.5px; }
+  #sel dt { color: var(--faint); }
+  #sel dd { margin: 0; color: var(--ink); }
+  #term { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 12px; font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+  .ln { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; padding: 1px 0; animation: lnin .7s ease-out; }
+  @keyframes lnin { from { background: color-mix(in srgb, var(--ink) 16%, transparent); } to { background: transparent; } }
+  .ln .tg { flex: none; width: 4ch; color: var(--faint); }
+  .ln.hd { display: block; color: var(--ink); font-weight: 700; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .ln.hd:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+  .ln.hd small { display: block; font-weight: 400; color: var(--faint); font-size: 10.5px; }
+  .ln.post { margin-top: 7px; cursor: pointer; }
+  .ln .nm { color: var(--c); font-weight: 700; }
+  .ln .ch { color: var(--faint); font-size: 10px; }
+  .ln .st { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .dl { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+  .dl.up { color: var(--yes); } .dl.dn { color: var(--no); }
+  .ln p { flex-basis: 100%; margin: 1px 0 0; padding-left: calc(4ch + 8px); color: var(--text2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .ln.sel p { display: block; color: var(--ink); }
+  .ln.ev { color: var(--dim); cursor: pointer; flex-wrap: nowrap; }
+  .ln.ev > span:last-child { min-width: 0; }
+  .ln .gl { flex: none; width: 1.6ch; text-align: center; color: var(--ink); }
+  .ln .gl.lk { color: var(--like); }
+  .ln.end { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); color: var(--ink); }
+  .cursor { display: inline-block; width: 7px; height: 13px; margin-top: 8px; background: var(--ink); animation: blink 1.1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .deck { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 10px; }
+  .play { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 6px; min-width: 0; }
+  .transport { display: flex; align-items: center; gap: 10px; }
+  .transport .pp { width: 74px; padding: 5px 0; border-radius: 5px; background: var(--ink); color: var(--bg); font-weight: 700; }
+  .transport .sp { width: 40px; padding: 4px 0; border-radius: 5px; border: 1px solid var(--line); color: var(--dim); }
+  .transport input { flex: 1; min-width: 0; accent-color: var(--core); }
+  .transport output { flex: none; color: var(--dim); min-width: 13ch; text-align: right; }
+  .chartwrap { position: relative; height: 118px; margin-top: 4px; }
+  .chartwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+  .figs { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; align-content: center; }
+  .figs div { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .figs dt { color: var(--dim); font-size: 11px; }
+  .figs dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 880px) {
+    html, body { height: auto; }
+    .app { height: auto; overflow: visible; display: flex; flex-direction: column; }
+    .bar { flex-wrap: wrap; }
+    .mid, .deck { grid-template-columns: minmax(0, 1fr); }
+    .stagewrap { display: flex; flex-direction: column; overflow: visible; background: none; border: 0; gap: 10px; }
+    .stage { position: relative; inset: auto; height: 58vh; min-height: 340px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--space); border-color: #3a4763; }
+    .legend { position: static; width: auto; }
+    .stepname { top: 10px; }
+    .readout { display: none; }
+    .term { height: 70vh; }
+    .bub { max-width: 170px; }
+    .transport { flex-wrap: wrap; }
+    .transport input { flex-basis: 100%; order: 3; }
+    .deck { order: 2; } .mid { order: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .ln, .cursor { animation: none; } }
+
+  /* ---------- shell ---------- */
+  a { color: inherit; }
+  .bar { flex: none; }
+  .bar .chip { text-decoration: none; }
+  .tabs { display: flex; gap: 4px; flex: none; }
+  .tabs a { text-decoration: none; padding: 4px 9px; border-radius: 5px; border: 1px solid transparent; color: var(--dim); font-size: 11px; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current="page"] { border-color: var(--line); background: var(--panel-2); color: var(--ink); }
+  #runpick { flex: none; max-width: 300px; font: inherit; font-size: 11px; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+  #view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .run { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 10px; }
+  #tip { position: fixed; z-index: 9999; pointer-events: none; white-space: pre-line; background: var(--term); border: 1px solid var(--faint); border-radius: 6px;
+         padding: 6px 9px; font-size: 11px; line-height: 1.5; color: var(--ink); font-variant-numeric: tabular-nums; max-width: 280px; }
+
+  /* ---------- overview ---------- */
+  .ov { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .ov > * { flex: none; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 11px; min-width: 0; }
+  .tile .k { color: var(--dim); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+  .tile .v { font: 700 24px/1.2 var(--mono); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 10px; align-items: start; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+  .card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 10px 12px 9px; border-bottom: 1px solid var(--line); }
+  .card h2 { margin: 0; font: 700 12px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .card .note { margin: 0; color: var(--dim); font-size: 11px; flex: 1; min-width: min(100%, 240px); max-width: 110ch; }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px 0; color: var(--dim); font-size: 10.5px; }
+  .key span { display: inline-flex; align-items: center; gap: 6px; }
+  .key i { position: static; transform: none; flex: none; }
+  .scroll { overflow-x: auto; }
+  .ov table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+  .ov th { text-align: left; font-weight: 400; color: var(--faint); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 8px 12px 6px; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .ov td { padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .ov tr:last-child td { border-bottom: 0; }
+  .ov .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ov .nw { white-space: nowrap; }
+  .ov td small { display: block; color: var(--faint); font-size: 10px; margin-top: 1px; }
+  .ov td.dimc, .ov .dimc { color: var(--faint); }
+  .ov tr.go { cursor: pointer; }
+  .ov tr.go:hover td, .ov tr.hl td { background: var(--panel-2); }
+  .ov tr.total td { font-weight: 700; }
+  .ov td a { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+  .ov td a:hover { text-decoration-color: var(--ink); }
+  .qc { min-width: 230px; max-width: 380px; overflow-wrap: anywhere; }
+  .mth { min-width: 220px; max-width: 420px; color: var(--text2); }
+  .flag { display: inline-block; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--dim); font-size: 10px; white-space: nowrap; }
+  .who { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-weight: 700; }
+  .who i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
+  /* where one run's four numbers sit between 0% and 100% */
+  .strip { position: relative; width: 200px; height: 18px; }
+  .strip::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); }
+  .strip::after { content: ""; position: absolute; left: 50%; top: 4px; bottom: 4px; width: 1px; background: var(--faint); }
+  .strip i { position: absolute; top: 50%; transform: translate(-50%, -50%); }
+  i.mk { width: 2px; height: 14px; background: var(--ink); z-index: 1; }
+  i.sc { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--text2); z-index: 2; }
+  i.al { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); z-index: 3; }
+  i.fi { width: 11px; height: 11px; border-radius: 50%; background: var(--core); box-shadow: 0 0 0 2px var(--panel); z-index: 4; }
+  /* a magnitude bar: one hue, length is the value */
+  .mag { position: relative; display: block; min-width: 110px; height: 10px; background: var(--panel-2); border-radius: 0 4px 4px 0; }
+  .mag i { display: block; height: 100%; min-width: 1px; background: color-mix(in srgb, var(--core) 78%, var(--bg)); border-radius: 0 4px 4px 0; }
+  .mag.ref i { background: var(--faint); }
+  .mag.lk i { background: color-mix(in srgb, var(--like) 78%, var(--bg)); }
+  .mag.half::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--dim); }
+  .foot { color: var(--faint); font-size: 10.5px; padding: 2px 2px 8px; }
+
+  @media (max-width: 880px) {
+    #view { display: block; }
+    .run { display: flex; flex-direction: column; }
+    .ov { overflow: visible; }
+    .bar h1 { flex-basis: 100%; order: 5; }
+    #runpick { max-width: 100%; min-width: 0; flex: 1; }
+    .tile .v { font-size: 20px; }
+  }
+
+  /* ---------- run figures panel ---------- */
+  :root { --s-rep: #8b79ec; --s-like: #f04f7f; }
+  .play { display: flex; flex-direction: column; }
+  .chartwrap { flex: 1; height: auto; min-height: 118px; }
+  .figbox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 9px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .figbox > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .figbox h2 { margin: 0; font: 400 10.5px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  .expand { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 5px; color: var(--text2); font-size: 10.5px; }
+  .expand:hover { color: var(--ink); border-color: var(--faint); background: var(--panel-2); }
+  .expand svg { width: 12px; height: 12px; flex: none; }
+  .figbox .figs { background: none; border: 0; border-radius: 0; padding: 0; flex: 1; }
+  .figs div { cursor: help; border-radius: 3px; }
+  .figs div:focus-visible { outline: 2px solid var(--core); outline-offset: 2px; }
+  .figs dt { display: inline-flex; align-items: center; gap: 6px; }
+  .figs dt i { flex: none; }
+  .figs dt i.mk { height: 10px; }
+  .rng { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 10px; }
+  .rng .strip { flex: 1; width: auto; height: 20px; cursor: help; }
+  .strip.zoom::after { display: none; }
+  .strip i.half { width: 1px; height: 10px; background: var(--faint); }
+  .strip u { position: absolute; top: 50%; height: 2px; transform: translateY(-50%); opacity: .65; }
+  .strip.db { width: 170px; }
+  .modal .mag { min-width: 72px; }
+  .area .ref.under span { bottom: auto; top: 2px; }
+  i.nw { width: 0; height: 0; border: 4px solid transparent; border-top: 6px solid var(--ink); z-index: 5; }
+  .strip i.nw { top: 0; transform: translateX(-50%); }
+
+  /* ---------- every metric for one run, in a dialog ---------- */
+  dialog.modal { width: min(1180px, calc(100% - 24px)); max-height: calc(100% - 24px); padding: 0; border: 1px solid var(--line); border-radius: 10px;
+                 background: var(--bg); color: var(--ink); font: inherit; overflow: hidden; }
+  dialog.modal[open] { display: flex; flex-direction: column; }
+  dialog.modal::backdrop { background: rgba(4, 5, 7, .76); }
+  .modal > header { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .modal > header h2 { margin: 0; font: 700 13px/1.35 var(--mono); flex: 1; min-width: 0; text-wrap: balance; }
+  .modal > header h2 small { display: block; font-weight: 400; color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .modal .mx { flex: none; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 5px; color: var(--text2); display: grid; place-items: center; }
+  .modal .mx:hover { color: var(--ink); background: var(--panel-2); }
+  .modal .mbody { padding: 12px 14px 14px; overflow-y: auto; }
+  .mtiles { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 1100px) { .mtiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .mtiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .mtiles .tile { padding: 8px 10px 9px; cursor: help; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; }
+  .mtiles .tile:focus-visible { outline: 2px solid var(--core); outline-offset: 2px; }
+  .mtiles .tile .k { font-size: 10px; }
+  .mtiles .tile .v { font-size: 17px; margin-top: 3px; white-space: nowrap; }
+  .stack { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .plot { padding: 12px 12px 10px; }
+  .plotgrid { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 0 6px; }
+  .yax { position: relative; color: var(--faint); font-size: 10px; }
+  .yax span { position: absolute; right: 0; transform: translateY(-50%); }
+  .area { position: relative; height: 180px; }
+  .area svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .area .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); }
+  .area .ref { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--text2); }
+  .area .ref.dot { border-top-style: dotted; }
+  .area .ref span { position: absolute; right: 2px; bottom: 2px; font-size: 10px; color: var(--text2); background: var(--panel); padding: 0 3px; }
+  .area .ref.dot span { right: auto; left: 2px; }
+  .area .pt { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 2px var(--panel); transform: translate(-50%, -50%); }
+  .cols-x { position: absolute; inset: 0; display: flex; }
+  .cols-x > div { flex: 1; }
+  .cols-x > div:hover, .bars > div:hover { background: rgba(255, 255, 255, .05); }
+  .xax { display: flex; color: var(--faint); font-size: 10px; margin-top: 4px; }
+  .xax span { flex: 1; text-align: center; }
+  .bars { display: flex; align-items: flex-end; height: 64px; border-bottom: 1px solid var(--line); }
+  .bars > div { flex: 1; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 2px; }
+  .bars i { display: block; width: min(22px, 60%); min-height: 1px; background: color-mix(in srgb, var(--core) 78%, var(--bg)); border-radius: 4px 4px 0 0; }
+  .bars.two i { width: min(16px, 36%); }
+  .bars i.rp, i.sw.rp { background: var(--s-rep); }
+  .bars i.lk, i.sw.lk { background: var(--s-like); }
+  .sub { grid-column: 1 / -1; color: var(--dim); font-size: 10.5px; margin: 16px 0 8px; }
+  i.sw { width: 10px; height: 10px; border-radius: 2px; }
+  i.sw.bd { background: rgba(157, 140, 245, .3); }
+  i.ln2 { width: 14px; height: 2px; background: var(--ink); }
+  i.dash { width: 14px; height: 0; border-top: 1px dashed var(--text2); }
+  i.dash.dot { border-top-style: dotted; }
+  .plot .key { padding: 0 0 12px; }
+
+  /* ---------- colour, status and controls for the overview, agents and admin views ---------- */
+  [data-tip]:focus-visible { outline: 2px solid var(--core); outline-offset: 2px; }
+  .card, .tile { --acc: var(--core); }
+  .a-fin { --acc: #9d8cf5; } .a-que { --acc: #5b9cf0; } .a-sub { --acc: #e8b84a; } .a-sco { --acc: #58c7e8; }
+  .a-ag { --acc: #d98cd8; } .a-rej { --acc: #ff6d5b; } .a-cost { --acc: #a3b552; }
+  .card > header { background: color-mix(in srgb, var(--acc) 14%, var(--panel)); border-bottom-color: color-mix(in srgb, var(--acc) 38%, var(--line));
+                   border-radius: 7px 7px 0 0; box-shadow: inset 3px 0 0 var(--acc); }
+  .card h2 { display: inline-flex; align-items: center; gap: 8px; cursor: help; border-radius: 3px; }
+  i.q { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--acc, var(--core)) 65%, var(--line)); color: var(--text2);
+        font: 700 9px/12px var(--mono); text-align: center; letter-spacing: 0; }
+  .tiles .tile { border-top: 2px solid var(--acc); background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 13%, var(--panel)), var(--panel) 75%); cursor: help; }
+  .tiles .tile .k { display: flex; align-items: center; gap: 7px; color: var(--text2); }
+  .tiles .tile .k::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--acc); }
+  .ov thead th { background: var(--panel-2); color: var(--dim); }
+  .ov th[data-tip] { cursor: help; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+  .ov tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel-2) 50%, transparent); }
+  .ov td.empty { color: var(--dim); padding: 13px 12px; }
+  .tk { font-weight: 700; white-space: nowrap; }
+  .state { --sc: var(--dim); display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 7px; border-radius: 999px; font-size: 10.5px; white-space: nowrap; color: var(--ink);
+           border: 1px solid color-mix(in srgb, var(--sc) 55%, transparent); background: color-mix(in srgb, var(--sc) 17%, transparent); }
+  .state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--sc); }
+  .state.open, .state.wait { --sc: #e8b84a; } .state.yes { --sc: var(--yes); } .state.no, .state.rej { --sc: var(--no); } .state.que { --sc: #5b9cf0; }
+  .btn { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); font-size: 11px; white-space: nowrap; }
+  .btn:hover { border-color: var(--faint); }
+  .btn.pri { background: var(--core); border-color: var(--core); color: #0c0e13; font-weight: 700; padding: 6px 12px; }
+  .btn.yes { border-color: color-mix(in srgb, var(--yes) 60%, var(--line)); } .btn.no { border-color: color-mix(in srgb, var(--no) 60%, var(--line)); }
+  .btn:disabled, .submit input:disabled, .submit textarea:disabled { opacity: .5; cursor: default; }
+  .act { white-space: nowrap; text-align: right; } .act .btn + .btn { margin-left: 6px; }
+  .submit { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 10px; padding: 12px; margin: 0; box-shadow: inset 3px 0 0 var(--acc); border-radius: 7px; }
+  .submit .top { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .submit .ttl { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; cursor: help; display: inline-flex; align-items: center; gap: 8px; border-radius: 3px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { padding: 5px 11px; font: inherit; font-size: 11px; color: var(--text2); background: transparent; border: 0; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--acc) 24%, var(--panel)); color: var(--ink); font-weight: 700; }
+  .seg button:focus-visible { outline: 2px solid var(--core); outline-offset: -2px; }
+  .submit .f { display: flex; flex-direction: column; gap: 4px; min-width: 0; } .submit .f.wide { grid-column: span 3; }
+  .submit > .btn { justify-self: start; }
+  .submit .msg { grid-column: 1 / -1; }
+  .cols .submit > * { grid-column: 1 / -1; }
+  @media (max-width: 720px) { .submit > * { grid-column: 1 / -1 !important; } }
+  .submit label { font-size: 10.5px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; align-self: flex-start; }
+  .submit label[data-tip] { cursor: help; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+  .submit input, .submit textarea { width: 100%; min-width: 0; font: inherit; color: var(--ink); background: var(--term); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; }
+  .submit textarea { resize: vertical; min-height: 46px; line-height: 1.4; } .submit input.up { text-transform: uppercase; }
+  .submit input:focus-visible, .submit textarea:focus-visible { outline: 2px solid var(--core); outline-offset: 1px; }
+  .submit input::placeholder, .submit textarea::placeholder { text-transform: none; color: var(--faint); }
+  .ov td small.rule { color: var(--text2); font-size: 11px; margin-top: 3px; } .qid { margin-left: 8px; font-family: var(--mono); }
+  .ov td.own[data-tip] { cursor: help; } .ov td.n small { white-space: nowrap; }
+  .card > header + .submit { box-shadow: none; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .msg { margin: 0; font-size: 11px; color: var(--text2); flex-basis: 100%; overflow-wrap: anywhere; } .msg:empty { display: none; }
+  .msg.ok { color: var(--yes); } .msg.err { color: var(--no); }
+  .admbody { display: flex; flex-direction: column; gap: 10px; }
+  .gate { margin: 0; padding: 14px 12px; color: var(--text2); }
+  .submit.login { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; box-shadow: none; padding-top: 0; }
+  .submit.login .btn { grid-column: 1 / -1; }
+  .ov > .msg { padding: 0 2px; flex-basis: auto; }
+  .admbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
+  .legal { flex: none; margin: 0; color: var(--faint); font-size: 10.5px; line-height: 1.45; text-align: center; text-wrap: balance; }
+  .app.adm .bar { border-color: color-mix(in srgb, #e8b84a 55%, var(--line)); }
+  .app.adm .bar .chip { background: #e8b84a; }
+  @media (max-width: 880px) { .tabs { flex: 1 1 100%; flex-wrap: wrap; order: 4; } }
+
+  .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 720px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  /* ---------- scroll bars: thin slate pills that light up in the accent ---------- */
+  :root { --sb: color-mix(in srgb, var(--core) 30%, var(--line)); --sb-on: color-mix(in srgb, var(--core) 78%, var(--line)); }
+  @supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--sb) transparent; } }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background-color: var(--sb); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; min-width: 36px; min-height: 36px; }
+  ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: var(--sb-on); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  .scroll::-webkit-scrollbar-track { background: color-mix(in srgb, var(--term) 55%, transparent); border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; }
+
+  /* ---------- the agents panel on the graph can be moved and put back ---------- */
+  .legend .grab { position: relative; display: flex; align-items: center; justify-content: center; height: 16px; margin: -4px 0 4px; border-radius: 5px; cursor: grab; touch-action: none; }
+  .legend .grab i { width: 34px; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--core) 42%, var(--line)); }
+  .legend .grab:hover i, .legend .grab:focus-visible i, .legend.moving .grab i { background: var(--core); }
+  .legend .grab .rst { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 0 7px; font-size: 10px; line-height: 15px; border: 1px solid var(--line); border-radius: 4px;
+                       color: var(--text2); background: var(--panel-2); cursor: pointer; }
+  .legend .grab .rst:hover { border-color: var(--core); color: var(--ink); }
+  .legend .lh { cursor: grab; touch-action: none; }
+  .legend.moving { border-color: var(--core); box-shadow: 0 12px 34px rgba(0, 0, 0, .5); user-select: none; }
+  .legend.moving .grab, .legend.moving .lh { cursor: grabbing; }
+  @media (max-width: 880px) { .legend .grab { display: none; } .legend .lh { cursor: default; touch-action: auto; } }
+  .legend { z-index: 6; }
+  .bar h1:empty { min-height: 0; }
+  @media (max-width: 880px) { .bar h1:empty { display: none; } }
+  .stage { isolation: isolate; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <a class="chip" href="#overview" data-go="overview">SUPERCAST</a>
+    <nav class="tabs" aria-label="Views"><a href="#overview" data-go="overview" id="tab-ov">Overview</a><a href="#agents" data-go="agents" id="tab-ag">Agents and scoring</a><a href="#overview" id="tab-run">Replay</a></nav>
+    <h1 id="q"></h1>
+    <select id="runpick" aria-label="Choose a run" hidden></select>
+    <span class="counts" id="counts"></span>
+  </header>
+  <div id="view"></div>
+  <p class="legal">Research prototype. Forecasts are model output and can be wrong. Not financial advice, and not a recommendation to trade. Not affiliated with Kalshi.</p>
+</div>
+<div id="tip" role="tooltip" hidden></div>
+<dialog id="metrics" class="modal" aria-label="Run metrics"></dialog>
+
+<template id="tpl-run"><div class="run">
+  <main class="mid">
+    <section class="stagewrap">
+      <div class="stage" id="stage">
+        <canvas id="cv" aria-label="3D graph of the panel's discussion"></canvas>
+        <div id="pills"></div>
+        <div class="stepname" id="stepname"></div>
+      </div>
+      <aside class="legend" aria-label="Panel agents">
+        <div class="grab" id="lg-grab" tabindex="0" role="group" aria-label="Move this panel" data-tip="Drag to move. Arrow keys move it too. Double-click to put it back."><i></i><button id="lg-reset" class="rst" hidden>Reset</button></div>
+        <div class="lh"><span>Agents</span><span>likes</span><span>YES</span></div>
+        <ul id="legend"></ul>
+        <div class="mode"><span>colour</span>
+          <button id="mode-agent" aria-pressed="true">agent</button>
+          <button id="mode-belief" aria-pressed="false">belief</button>
+        </div>
+        <div class="scale" id="scale" hidden><span>NO</span><span class="g"></span><span>YES</span></div>
+        <div class="hint">Drag to turn. Click a dot or a log line to read it.</div>
+      </aside>
+      <div class="readout" id="readout"></div>
+    </section>
+
+    <aside class="term" aria-label="Run log">
+      <div class="termhead"><strong>panel.log</strong><span><span id="tc-posts">0</span> posts · <span id="tc-replies">0</span> replies · <span class="lk">♥ <span id="tc-likes">0</span></span></span></div>
+      <div id="sel" hidden></div>
+      <div id="term" tabindex="0"><span class="cursor" id="cursor"></span></div>
+    </aside>
+  </main>
+
+  <footer class="deck">
+    <div class="play">
+      <div class="transport">
+        <button class="pp" id="pp">Pause</button>
+        <button class="sp" id="sp" aria-label="Playback speed">1×</button>
+        <input type="range" id="scrub" min="0" max="12" step="0.01" value="0" aria-label="Position in the run">
+        <output id="where" for="scrub"></output>
+      </div>
+      <div class="chartwrap"><canvas id="chart" aria-label="Each agent's probability by round"></canvas></div>
+    </div>
+    <section class="figbox" aria-label="Run figures">
+      <header><h2>Run figures</h2>
+        <button class="expand" id="expand" data-tip="Open every metric for this run, with charts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6"/></svg>All metrics</button>
+      </header>
+      <div class="rng" id="f-strip"></div>
+      <dl class="figs" id="figs"></dl>
+    </section>
+  </footer>
+</div></template>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const APP = JSON.parse(document.getElementById('data').textContent);
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const COLORS = ['#e8b84a', '#5b9cf0', '#3fc1b0', '#f08a4b', '#c3c9d4', '#b9a27a', '#a3b552', '#58c7e8', '#d98cd8', '#8fd67a'];
+const RUNS = Object.fromEntries(APP.runs.map(r => [r.run_id, r]));
+const view = $('#view');
+const P = (p, d = 1) => p == null ? '–' : (p * 100).toFixed(d) + '%';
+const money = (x, d = 3) => '$' + x.toFixed(d);
+const signed = (x, d = 1) => x == null ? '–' : (x > 0 ? '+' : '') + x.toFixed(d);
+function belief(p) {
+  if (p == null) return [120, 124, 132];
+  const u = Math.max(0, Math.min(1, (p - 0.2) / 0.6)), no = [255, 109, 91], mid = [214, 208, 196], yes = [69, 223, 190];
+  const [a, b, k] = u < .5 ? [no, mid, u * 2] : [mid, yes, (u - .5) * 2];
+  return a.map((v, i) => Math.round(v + (b[i] - v) * k));
+}
+const tint = p => p == null ? 'inherit' : `rgb(${belief(p).join(',')})`;
+// a heading or a column head carries its explainer as a tooltip
+const head = (title, tipText) => `<h2 tabindex="0" data-tip="${esc(tipText)}">${title}<i class="q" aria-hidden="true">?</i></h2>`;
+const th = (label, tipText, cls) => `<th${cls ? ` class="${cls}"` : ''}${tipText ? ` tabindex="0" data-tip="${esc(tipText)}"` : ''}>${label}</th>`;
+const tile = (acc, label, value, tipText, id) => `<div class="tile ${acc}" tabindex="0" data-tip="${esc(tipText)}"><div class="k">${label}</div><div class="v"${id ? ` id="${id}"` : ''}>${value}</div></div>`;
+const emptyRow = (n, text) => `<tr><td colspan="${n}" class="empty">${esc(text)}</td></tr>`;
+const outcomeChip = o => o == null ? '<span class="state open">open</span>' : o ? '<span class="state yes">YES</span>' : '<span class="state no">NO</span>';
+const TIP = {
+  finished: 'Runs the panel has completed. Click a row to replay it.',
+  queued: 'Markets and questions approved to run next.',
+  submitted: 'Markets and questions waiting for approval.',
+  scored: 'Finished runs whose market has settled.',
+  submit: 'A Kalshi market by its ticker, or your own yes or no question. It runs only after it is approved.',
+  type: 'Kalshi: a market on Kalshi, priced and settled there.\nOwn question: no market price, so the single call on the brief stands in for it, and the outcome is entered by hand.',
+  slot: 'Queued Kalshi markets run one every two hours, oldest first. An own question needs its brief written first.',
+  pending: 'Queued: approved and waiting to run.\nAwaiting approval: submitted and not yet decided.',
+  added: 'When it was approved, or when it was submitted if it is still awaiting approval.',
+  id: 'The Kalshi ticker, or the ID given to an own question.',
+  strip: 'Where the four numbers sit between 0% and 100%.',
+  market: 'The market price for YES when the brief was frozen. No agent sees it. A question with no market shows the single call on the brief here.',
+  single: 'One plain model call on the whole brief, with no panel.',
+  before: 'The forecasts each agent made alone, before anyone posted, pooled into one number.',
+  final: 'The private final forecasts, pooled into one number. This is the forecast that gets scored.',
+  moved: 'Final less before talking, in points.',
+  spread: 'How far apart the agents were, in points: alone, then at the end.',
+  outcome: 'How the market settled. Open until it does.',
+  score: 'Brier score of the final forecast: the squared gap to the outcome. 0 is perfect. Always saying 50% scores 0.250.',
+  replies: 'Times a post named another agent.',
+  likes: 'Private marks agents gave to posts that helped them.',
+};
+
+/*__SHARED__*/
+// ---------- the queue and submissions, kept by the API ----------
+const ADMIN = location.pathname.replace(/\/+$/, '') === '/wp-admin', API = ADMIN ? '/api/admin' : '/api/state';
+const Cap = e => e.kind === 'q' ? 'Question' : e.id, That = e => e.kind === 'q' ? 'This question' : e.id;
+const FINISHED = new Set(APP.runs.map(r => r.question_id));
+const live = { state: 'loading', admin: false, user: null, rows: null, costs: null, busy: false, msg: null, mode: 'kalshi' };
+const stamp = v => { const t = typeof v === 'string' ? Date.parse(v) : NaN; return isNaN(t) ? null : new Date(t).toISOString(); };
+const when = iso => iso ? iso.slice(0, 16).replace('T', ' ') : '–';
+const byAt = (a, b) => (a.at || '').localeCompare(b.at || '');
+function derive() {                                        // these rows were written by visitors: check every field
+  const s = live.rows || {}, seen = new Set();
+  const clean = list => (Array.isArray(list) ? list : []).map(r => {
+    const e = !r ? null : okTicker(r.id) ? { id: r.id, kind: 'k' } : own(r);
+    if (!e || e.id !== r.id || FINISHED.has(e.id) || seen.has(e.id)) return null;
+    seen.add(e.id);
+    return { ...e, at: stamp(r.at), n: Number.isInteger(r.n) && r.n > 0 ? r.n : 1, mine: r.mine === true };
+  }).filter(Boolean).sort(byAt);
+  const queued = clean(s.queued), rejected = clean(s.rejected), submitted = clean(s.submitted);
+  return { queued, rejected, submitted, mine: submitted.filter(x => x.mine) };
+}
+const liveNote = () => live.state === 'on' ? null : live.state === 'loading' ? 'Loading' : 'Could not load';
+let paint = null;                                          // set by the open view; fills in whatever depends on the API
+function paintLive() { if (paint) paint(derive()); }
+function note(text, cls) { live.msg = { text, cls: cls || '' }; showMsg(''); }
+function showMsg(idle) { const m = $('#msg'); if (!m) return; m.className = 'msg ' + (live.msg ? live.msg.cls : ''); m.textContent = live.msg ? live.msg.text : idle; }
+const ERR = { bad: 'Not saved. Check the entry and try again.', queued: 'That one is already queued.', declined: 'That one was declined.', dup: 'You already submitted that.',
+  cap: `You have ${MAX_MINE} submissions waiting for approval. Withdraw one first.`, rate: 'Too many submissions from this network today. Try again tomorrow.', full: 'The list is full for now. Try again later.',
+  login: 'Wrong email or password.', locked: 'Too many attempts. Try again in 15 minutes.', auth: 'You are signed out. Sign in again.' };
+async function call(body) {
+  const r = await fetch(API, { method: body ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store', ...(body ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+  let j = null; try { j = await r.json(); } catch (e) {}
+  if (!r.ok || !j) throw { code: j && j.error };
+  return j;
+}
+function take(j) { live.admin = j.admin === true; live.user = typeof j.user === 'string' ? j.user : null; live.rows = j.state || null; live.costs = j.costs || null; live.state = 'on'; }
+async function write(body, done) {                         // one request at a time, and only when someone acts
+  if (live.busy) return false;
+  live.busy = true; live.msg = null; paintLive();
+  let ok = false;
+  try { take(await call(body)); ok = true; if (done) note(done, 'ok'); }
+  catch (e) { const c = e && e.code; if (c === 'auth') live.admin = false; note(ERR[c] || 'Not saved. Try again.', 'err'); }
+  live.busy = false; paintLive();
+  return ok;
+}
+async function connect() {
+  const slow = setTimeout(() => { if (live.state === 'loading') { live.state = 'failed'; paintLive(); } }, 10000);
+  try { take(await call()); } catch (e) { live.state = 'failed'; }
+  clearTimeout(slow); paintLive();
+}
+// the form takes a Kalshi ticker or an own question, picked with the switch at its top
+const formHtml = (kind, p, title, tipText, button) => `<form class="submit" data-form="${kind}" novalidate>
+  <div class="top"><span class="ttl" tabindex="0" data-tip="${esc(tipText)}">${title}<i class="q" aria-hidden="true">?</i></span>
+    <div class="seg" role="group" aria-label="${title}"><button type="button" data-mode="kalshi">Kalshi market</button><button type="button" data-mode="own">Own question</button></div></div>
+  <div class="f wide" data-for="kalshi"><label for="${p}-tk">Kalshi ID</label><input id="${p}-tk" name="ticker" class="up" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="200" placeholder="KXTRUMPAPPROVE-26NOV10-U38.8"></div>
+  <div class="f wide" data-for="own"><label for="${p}-qt" data-tip="A yes or no question about something that has not happened yet.">Question</label><input id="${p}-qt" name="text" autocomplete="off" maxlength="200" placeholder="Will the Fed cut rates at its January 2027 meeting?"></div>
+  <div class="f" data-for="own"><label for="${p}-rd" data-tip="The day the answer will be known.">Resolves on</label><input id="${p}-rd" name="resolves" type="date"></div>
+  <div class="f wide" data-for="own"><label for="${p}-rc" data-tip="What has to be true for the answer to be YES, and where that is checked.">Resolves YES if</label><textarea id="${p}-rc" name="criteria" rows="2" maxlength="400" placeholder="The Federal Reserve's statement that day lowers the target range."></textarea></div>
+  <button class="btn pri" type="submit">${button}</button>${kind === 'submit' ? '<p class="msg" id="msg" role="status"></p>' : ''}</form>`;
+function applyMode() {
+  for (const f of document.querySelectorAll('form.submit')) {
+    for (const el of f.querySelectorAll('[data-for]')) el.hidden = el.dataset.for !== live.mode;
+    for (const b of f.querySelectorAll('[data-mode]')) b.setAttribute('aria-pressed', String(b.dataset.mode === live.mode));
+    if (f.elements.resolves) f.elements.resolves.min = today();
+  }
+}
+function fromForm(f) {                                     // what the form holds, or nothing and a message saying what is missing
+  if (live.mode !== 'own') { const tk = normTicker(f.elements.ticker.value); return tk ? { id: tk, kind: 'k' } : note('Enter a Kalshi market ticker, for example KXTRUMPAPPROVE-26NOV10-U38.8', 'err'); }
+  const text = squash(f.elements.text.value), criteria = squash(f.elements.criteria.value), resolves = f.elements.resolves.value;
+  if (text.length < 12) return note('Write the question in full, so it can be answered yes or no.', 'err');
+  if (!okDate(resolves) || resolves < today()) return note('Pick the day the answer will be known, today or later.', 'err');
+  if (criteria.length < 12) return note('Say what has to be true for the answer to be YES.', 'err');
+  return own({ text, resolves, criteria }) || note('Shorten the question or the rule.', 'err');
+}
+const clearForm = f => { for (const n of ['ticker', 'text', 'resolves', 'criteria']) f.elements[n].value = ''; };
+const send = e => e.kind === 'q' ? { text: e.text, resolves: e.resolves, criteria: e.criteria } : { ticker: e.id };
+async function submitForm(f) {
+  const e = fromForm(f); if (!e) return;
+  const d = derive();
+  if (live.state !== 'on') return note('Could not load the queue. Reload the page to try again.', 'err');
+  if (FINISHED.has(e.id)) return note(That(e) + ' already has a finished run.', 'err');
+  if (d.queued.some(q => q.id === e.id)) return note(That(e) + ' is already queued.', 'err');
+  if (d.mine.some(i => i.id === e.id)) return note(e.kind === 'q' ? 'You already submitted this question.' : 'You already submitted ' + e.id + '.', 'err');
+  if (d.mine.length >= MAX_MINE) return note(ERR.cap, 'err');
+  if (await write({ action: 'submit', ...send(e) }, Cap(e) + ' submitted for approval.')) clearForm(f);
+}
+const withdraw = id => { const e = derive().mine.find(i => i.id === id); if (e) write({ action: 'withdraw', id }, Cap(e) + ' withdrawn.'); };
+const decide = (e, status) => { if (e) write({ action: status === 'queued' ? 'approve' : 'decline', id: e.id }, Cap(e) + (status === 'queued' ? ' queued.' : ' declined.')); };
+const undecide = id => { if (okId(id)) write({ action: 'remove', id }, (okTicker(id) ? id : 'Question') + ' removed.'); };
+async function queueForm(f) {
+  const e = fromForm(f); if (!e) return;
+  if (FINISHED.has(e.id)) return note(That(e) + ' already has a finished run.', 'err');
+  if (await write({ action: 'add', ...send(e) }, Cap(e) + ' queued.')) clearForm(f);
+}
+async function loginForm(f) {
+  const username = f.elements.username.value.trim(), password = f.elements.password.value;
+  if (!username || !password) return note('Enter your email and password.', 'err');
+  await write({ action: 'login', username, password }, '');
+  f.elements.password.value = '';
+}
+const logout = () => write({ action: 'logout' }, 'Signed out.');
+// the cells of a queue or submission row: a ticker or the question with its date and rule, its type, and its run slot
+const what = (e, full) => { const yours = e.mine && !full ? '<span class="flag">yours</span>' : '';
+  return e.kind !== 'q' ? `<td class="tk">${esc(e.id)}${yours}</td>`
+    : `<td class="qc own"${full ? '' : ` tabindex="0" data-tip="${esc('Resolves YES if\n' + e.criteria)}"`}>${esc(e.text)}${yours}${full ? `<small class="rule">YES if ${esc(e.criteria)}</small>` : ''}<small>resolves ${esc(e.resolves)}${full ? `<span class="qid">${esc(e.id)}</span>` : ''}</small></td>`; };
+const kindCell = e => `<td class="nw">${e.kind === 'q' ? 'Own question' : 'Kalshi'}</td>`;
+const EVERY = 2 * 3600 * 1000;                             // queued Kalshi markets run one per slot, oldest first
+function slots(queued) { const m = new Map(); let t = Math.ceil(Date.now() / EVERY) * EVERY; for (const q of queued) if (q.kind === 'k') { m.set(q.id, new Date(t).toISOString()); t += EVERY; } return m; }
+const slotCell = (q, sl) => q.kind === 'k' ? `<td class="nw">${when(sl.get(q.id))}</td>` : '<td class="nw dimc">needs a brief</td>';
+
+// ---------- overview: finished, queued and submitted runs ----------
+function mountOverview() {
+  const runs = APP.runs, at = p => (p * 100).toFixed(1) + '%';
+  const strip = r => {
+    const a = r.aggregates, tipText = `${r.market == null ? 'No market price' : 'Market at freeze ' + P(r.market)}\nSingle call ${P(r.a0)}\nPanel before talking ${P(a.prior)}\nPanel final ${P(a.equal)}`;
+    return `<div class="strip" data-tip="${esc(tipText)}">`
+      + (r.market != null ? `<i class="mk" style="left:${at(r.market)}"></i>` : '') + (r.a0 != null ? `<i class="sc" style="left:${at(r.a0)}"></i>` : '')
+      + (a.prior != null ? `<i class="al" style="left:${at(a.prior)}"></i>` : '') + (a.equal != null ? `<i class="fi" style="left:${at(a.equal)}"></i>` : '') + '</div>';
+  };
+  const runRows = runs.map(r => {
+    const a = r.aggregates, replies = r.posts.reduce((s, p) => s + (p.round > 0 ? p.answers.length : 0), 0), likes = r.posts.reduce((s, p) => s + p.likes.length, 0);
+    const moved = a.equal != null && a.prior != null ? (a.equal - a.prior) * 100 : null;
+    return `<tr class="go" data-go="run-${r.run_id}">
+      <td class="nw">${r.finished.slice(11, 16)}<small>${r.finished.slice(0, 10)}</small></td>
+      <td class="tk">${esc(r.question_id)}</td>
+      <td class="qc"><a href="#run-${r.run_id}" data-go="run-${r.run_id}">${esc(r.question)}</a></td>
+      <td>${strip(r)}</td>
+      <td class="n">${r.market != null ? P(r.market) : P(r.a0) + '<small>single call</small>'}</td><td class="n">${P(r.a0)}</td><td class="n">${P(a.prior)}</td><td class="n"><b style="color:${tint(a.equal)}">${P(a.equal)}</b></td>
+      <td class="n">${signed(moved)}</td><td class="n">${r.sd_alone == null ? '–' : (r.sd_alone * 100).toFixed(1)} / ${r.sd_final == null ? '–' : (r.sd_final * 100).toFixed(1)}</td>
+      <td>${outcomeChip(r.outcome)}</td><td class="n${r.brier == null ? ' dimc' : ''}">${r.brier == null ? '–' : r.brier.toFixed(3)}</td>
+      <td class="n">${replies}</td><td class="n">${likes}</td></tr>`;
+  }).join('');
+
+  const el = document.createElement('main'); el.className = 'ov';
+  el.innerHTML = `
+    <section class="tiles four">${tile('a-fin', 'Finished', runs.length, TIP.finished)}${tile('a-que', 'Queued', '–', TIP.queued, 't-que')}${tile('a-sub', 'Submitted', '–', TIP.submitted, 't-sub')}${tile('a-sco', 'Scored', APP.n_scored, TIP.scored)}</section>
+    <section class="card a-sub">${formHtml('submit', 'sf', 'Submit', TIP.submit, 'Submit for approval')}</section>
+    <section class="card a-fin"><header>${head('Finished runs', TIP.finished)}</header>
+      <div class="key"><span><i class="mk"></i>market at freeze</span><span><i class="sc"></i>single call</span><span><i class="al"></i>panel before talking</span><span><i class="fi"></i>panel final</span></div>
+      <div class="scroll"><table><thead><tr><th>Finished, UTC</th>${th('ID', TIP.id)}<th>Question</th>${th('0% to 100%', TIP.strip)}${th('Market', TIP.market, 'n')}${th('Single call', TIP.single, 'n')}${th('Before talking', TIP.before, 'n')}${th('Final', TIP.final, 'n')}
+        ${th('Moved, pts', TIP.moved, 'n')}${th('Spread', TIP.spread, 'n')}${th('Outcome', TIP.outcome)}${th('Score', TIP.score, 'n')}${th('Replies', TIP.replies, 'n')}${th('Likes', TIP.likes, 'n')}</tr></thead>
+        <tbody>${runRows || emptyRow(14, 'No finished runs')}</tbody></table></div></section>
+    <section class="card a-que"><header>${head('Queued and submitted runs', TIP.pending)}</header>
+      <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}${th('Status', TIP.pending)}${th('Added, UTC', TIP.added)}${th('Runs, UTC', TIP.slot)}${th('Requests', 'How many people asked for this.', 'n')}<th></th></tr></thead><tbody id="b-pend"></tbody></table></div></section>`;
+  view.appendChild(el);
+  $('#q').textContent = '';
+  applyMode();
+  paint = d => {
+    const wait = liveNote(), can = live.state === 'on';
+    $('#t-que').textContent = wait ? '–' : d.queued.length; $('#t-sub').textContent = wait ? '–' : d.submitted.length;
+    const sl = slots(d.queued), rows = [
+      ...d.queued.map(q => `<tr>${what(q)}${kindCell(q)}<td><span class="state que">queued</span></td><td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="n dimc">–</td><td class="act"></td></tr>`),
+      ...d.submitted.map(s => `<tr>${what(s)}${kindCell(s)}<td><span class="state wait">awaiting approval</span></td><td class="nw">${when(s.at)}</td><td class="nw dimc">–</td><td class="n">${s.n}</td>
+        <td class="act">${s.mine ? `<button class="btn" data-act="withdraw" data-id="${esc(s.id)}"${live.busy ? ' disabled' : ''}>Withdraw</button>` : ''}</td></tr>`)];
+    $('#b-pend').innerHTML = wait ? emptyRow(7, wait) : rows.join('') || emptyRow(7, 'Nothing queued or submitted');
+    for (const c of el.querySelectorAll('.submit .f input, .submit .f textarea, .submit .btn')) c.disabled = !can || live.busy;
+    showMsg(can || live.state === 'loading' ? '' : 'Could not load the queue. Reload the page to try again.');
+  };
+}
+
+// ---------- agents and scoring ----------
+function mountAgents() {
+  const scoreRows = APP.scored.map(s => {
+    const ref = s.key === 'fifty' || s.key === 'market', w = s.brier == null ? 0 : Math.min(100, s.brier / .5 * 100);
+    return `<tr${s.key === 'PANEL' ? ' class="hl"' : ''}><td class="nw">${s.key === 'PANEL' ? '<b>' + esc(s.label) + '</b>' : esc(s.label)}</td><td class="n">${s.n}</td>
+      <td><span class="mag half${ref ? ' ref' : ''}" data-tip="${esc(s.label)}\n${s.brier == null ? 'Not scored' : 'Mean Brier ' + s.brier.toFixed(3) + ' over ' + s.n + (s.n === 1 ? ' run' : ' runs')}">${s.brier == null ? '' : `<i style="width:${w.toFixed(1)}%"></i>`}</span></td>
+      <td class="n${s.brier == null ? ' dimc' : ''}">${s.brier == null ? '–' : s.brier.toFixed(3)}</td></tr>`;
+  }).join('');
+  const maxLikes = Math.max(1, ...APP.agents.map(m => m.likes));
+  const agentRows = APP.agents.map((m, i) => `<tr><td><span class="who" style="--c:${COLORS[i % COLORS.length]}"><i></i>${esc(m.name)}</span></td>
+      <td class="mth">${esc(m.method)}</td><td class="n">${m.runs}</td><td class="n${m.challenger ? '' : ' dimc'}">${m.challenger}</td>
+      <td class="n">${m.move == null ? '–' : (m.move * 100).toFixed(1)}</td>
+      <td><span class="mag lk" data-tip="${esc(m.name)}\n${m.likes} likes received"><i style="width:${(m.likes / maxLikes * 100).toFixed(1)}%${m.likes ? '' : ';min-width:0'}"></i></span></td><td class="n">${m.likes}</td>
+      <td class="n${m.brier == null ? ' dimc' : ''}">${m.brier == null ? '–' : m.brier.toFixed(3)}</td></tr>`).join('');
+  const el = document.createElement('main'); el.className = 'ov';
+  el.innerHTML = `
+    <section class="card a-sco"><header>${head('Scoring', 'Mean Brier score over finished runs whose market has settled. Lower is better. The tick marks 0.250, what always saying 50% scores.')}</header>
+      <div class="scroll"><table><thead><tr><th>Forecaster</th>${th('Runs scored', TIP.scored, 'n')}<th>0 to 0.5</th>${th('Brier', TIP.score, 'n')}</tr></thead><tbody>${scoreRows}</tbody></table></div></section>
+    <section class="card a-ag"><header>${head('Agents', 'The panel. Each agent forecasts by its own method, reads two of the four parts of the brief, and all run on the same model.')}</header>
+      <div class="scroll"><table><thead><tr><th>Agent</th>${th('Method', 'How this agent is told to forecast.')}${th('Runs', 'Finished runs this agent took part in.', 'n')}${th('Challenger', 'Runs in which this agent was one of the two picked to push against the others.', 'n')}
+        ${th('Move, pts', 'Average gap, in points, between the forecast made alone and the final one.', 'n')}${th('Likes received', TIP.likes)}<th class="n"></th>${th('Score', 'Mean Brier score of this agent\'s own final forecasts on settled markets. Lower is better.', 'n')}</tr></thead>
+        <tbody>${agentRows || emptyRow(8, 'No agents')}</tbody></table></div></section>`;
+  view.appendChild(el);
+  $('#q').textContent = '';
+}
+
+// ---------- admin: approvals, the queue and costs, at /wp-admin behind a sign in. The API checks the session on every call. ----------
+function mountAdmin() {
+  const el = document.createElement('main'); el.className = 'ov';
+  el.innerHTML = `
+    <section class="card a-rej" id="adm-gate"><p class="gate" id="adm-gate-text"></p>
+      <form class="submit login" data-form="login" id="adm-login" novalidate hidden>
+        <div class="f"><label for="lg-u">Email</label><input id="lg-u" name="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="200"></div>
+        <div class="f"><label for="lg-p">Password</label><input id="lg-p" name="password" type="password" autocomplete="current-password" maxlength="200"></div>
+        <button class="btn pri" type="submit">Sign in</button></form></section>
+    <p class="msg" id="msg" role="status"></p>
+    <div class="admbody" id="adm-body" hidden>
+      <div class="admbar"><span id="adm-who"></span><button class="btn" data-act="logout">Sign out</button></div>
+      <section class="tiles four">${tile('a-sub', 'Awaiting approval', '–', 'Submissions you have not decided on.', 'a-n-sub')}${tile('a-que', 'Queued', '–', TIP.queued, 'a-n-que')}${tile('a-rej', 'Declined', '–', 'Submissions you declined.', 'a-n-rej')}${tile('a-cost', 'Cost per finished run', '–', 'Mean measured cost of a finished run, with its brief and single call.', 'a-n-cost')}</section>
+      <section class="card a-sub"><header>${head('Awaiting approval', 'What people submitted. Approve one to queue it, or decline it.')}</header>
+        <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Submitted, UTC</th>${th('Requests', 'How many people asked for this.', 'n')}<th></th></tr></thead><tbody id="a-sub"></tbody></table></div></section>
+      <div class="cols">
+        <section class="card a-que"><header>${head('Queue', 'Approved markets and questions, oldest first. The engine does not read this list: run them from the swarmz CLI.')}</header>
+          ${formHtml('queue', 'qf', 'Add', 'Queue a market or a question directly, without a submission.', 'Add to queue')}
+          <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Approved, UTC</th>${th('Runs, UTC', TIP.slot)}<th></th></tr></thead><tbody id="a-que"></tbody></table></div></section>
+        <section class="card a-rej"><header>${head('Declined', 'Submissions you declined. Undo puts one back for a fresh decision.')}</header>
+          <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Declined, UTC</th><th></th></tr></thead><tbody id="a-rej"></tbody></table></div></section>
+      </div>
+      <section class="card a-cost"><header>${head('Costs', 'Measured cost of each finished run at list prices: its brief, its single call, and the panel\'s forecasts and discussion.')}</header>
+        <div class="scroll"><table><thead><tr><th>Run</th><th>Finished, UTC</th><th>Share</th><th class="n">Brief</th><th class="n">Single call</th><th class="n">Panel forecasts</th><th class="n">Panel discussion</th><th class="n">Total</th><th class="n">Calls</th><th class="n">Tokens read</th></tr></thead><tbody id="a-cost"></tbody></table></div></section>
+    </div>`;
+  view.appendChild(el);
+  $('#q').textContent = '';
+  applyMode();
+  const num = x => typeof x === 'number' && isFinite(x) ? x : 0, dis = () => live.busy ? ' disabled' : '';
+  paint = d => {
+    const signed = live.admin && live.state === 'on';
+    $('#adm-gate').hidden = signed; $('#adm-body').hidden = !signed;
+    for (const c of el.querySelectorAll('.submit .f input, .submit .f textarea, .btn')) c.disabled = live.state !== 'on' || live.busy;
+    showMsg('');
+    if (!signed) { $('#adm-gate-text').textContent = live.state === 'loading' ? 'Checking access' : live.state === 'failed' ? 'Could not reach the server. Reload the page to try again.' : 'Sign in to open the admin view.'; $('#adm-login').hidden = live.state !== 'on'; return; }
+    $('#adm-who').textContent = live.user || '';
+    const wait = null;
+    $('#a-n-sub').textContent = wait ? '–' : d.submitted.length; $('#a-n-que').textContent = wait ? '–' : d.queued.length; $('#a-n-rej').textContent = wait ? '–' : d.rejected.length;
+    const sl = slots(d.queued);
+    $('#a-sub').innerHTML = wait ? emptyRow(5, wait) : d.submitted.map(s => `<tr>${what(s, true)}${kindCell(s)}<td class="nw">${when(s.at)}</td><td class="n">${s.n}</td>
+      <td class="act"><button class="btn yes" data-act="approve" data-id="${esc(s.id)}"${dis()}>Approve</button><button class="btn no" data-act="decline" data-id="${esc(s.id)}"${dis()}>Decline</button></td></tr>`).join('') || emptyRow(5, 'Nothing to approve');
+    $('#a-que').innerHTML = wait ? emptyRow(5, wait) : d.queued.map(q => `<tr>${what(q, true)}${kindCell(q)}<td class="nw">${when(q.at)}</td>${slotCell(q, sl)}<td class="act"><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Remove</button></td></tr>`).join('') || emptyRow(5, 'Nothing queued');
+    $('#a-rej').innerHTML = wait ? emptyRow(4, wait) : d.rejected.map(q => `<tr>${what(q)}${kindCell(q)}<td class="nw">${when(q.at)}</td><td class="act"><button class="btn" data-act="clear" data-id="${esc(q.id)}"${dis()}>Undo</button></td></tr>`).join('') || emptyRow(4, 'Nothing declined');
+    const rows = (live.costs && Array.isArray(live.costs.runs) ? live.costs.runs : []).map(r => ({ ...r, total: num(r.brief) + num(r.single) + num(r.forecasts) + num(r.discussion) }));
+    const sum = k => rows.reduce((s, r) => s + num(r[k]), 0), maxT = Math.max(...rows.map(r => r.total), 1e-9);
+    $('#a-n-cost').textContent = rows.length ? money(sum('total') / rows.length) : '–';
+    $('#a-cost').innerHTML = !rows.length ? emptyRow(10, 'No costs recorded')
+      : rows.map(r => `<tr><td class="qc">${esc(r.question || '')}<small>${esc(r.ticker || '')}</small></td><td class="nw">${esc(String(r.finished || '').slice(0, 16))}</td>
+        <td><span class="mag" data-tip="${esc(String(r.ticker || '') + '\n' + money(r.total))}"><i style="width:${(r.total / maxT * 100).toFixed(1)}%"></i></span></td>
+        <td class="n">${money(num(r.brief))}</td><td class="n">${money(num(r.single))}</td><td class="n">${money(num(r.forecasts))}</td><td class="n">${money(num(r.discussion))}</td><td class="n"><b>${money(r.total)}</b></td>
+        <td class="n">${num(r.calls)}</td><td class="n">${(num(r.tokens_read) / 1e3).toFixed(0)}k</td></tr>`).join('')
+      + `<tr class="total"><td>Total</td><td></td><td></td><td class="n">${money(sum('brief'))}</td><td class="n">${money(sum('single'))}</td><td class="n">${money(sum('forecasts'))}</td><td class="n">${money(sum('discussion'))}</td><td class="n">${money(sum('total'))}</td><td class="n">${sum('calls')}</td><td class="n">${(sum('tokens_read') / 1e3).toFixed(0)}k</td></tr>`;
+  };
+}
+
+// ---------- shell: which view is open ----------
+let current = null, unmount = null, lastRun = (APP.runs[0] || {}).run_id;
+const pickEl = $('#runpick'), tip = $('#tip');
+const VIEWS = ADMIN ? { admin: mountAdmin } : { overview: mountOverview, agents: mountAgents }, TABS = { overview: '#tab-ov', agents: '#tab-ag' };
+pickEl.innerHTML = APP.runs.map(r => `<option value="${r.run_id}">${r.finished.slice(0, 16)} UTC, ${esc(r.question.length > 40 ? r.question.slice(0, 39).trimEnd() + '…' : r.question)}</option>`).join('');
+$('#counts').textContent = 'as of ' + APP.generated;
+$('#counts').dataset.tip = 'Finished runs are a copy of the registry taken at this time.';
+function route(name) {
+  const isRun = !ADMIN && !!(name && name.startsWith('run-') && RUNS[name.slice(4)]);
+  if (!isRun && !VIEWS[name]) name = ADMIN ? 'admin' : 'overview';
+  if (name === current) return;
+  current = name; tip.hidden = true; paint = null; live.msg = null;
+  if (unmount) { unmount(); unmount = null; window.replay = null; }
+  view.textContent = '';
+  $('#counts').textContent = 'as of ' + APP.generated; $('#counts').dataset.tip = 'Finished runs are a copy of the registry taken at this time.';
+  if (isRun) { lastRun = name.slice(4); pickEl.value = lastRun; unmount = mountReplay(RUNS[lastRun]); } else VIEWS[name]();
+  pickEl.hidden = !isRun || APP.runs.length < 2;
+  const tr = $('#tab-run'); tr.hidden = !lastRun; tr.dataset.go = 'run-' + lastRun; tr.href = '#run-' + lastRun;
+  isRun ? tr.setAttribute('aria-current', 'page') : tr.removeAttribute('aria-current');
+  for (const [k, s] of Object.entries(TABS)) k === name ? $(s).setAttribute('aria-current', 'page') : $(s).removeAttribute('aria-current');
+  $('.app').classList.toggle('adm', name === 'admin');
+  paintLive(); scrollTo(0, 0);
+}
+function go(name) { if (ADMIN) { location.href = '/#' + name; return; } try { if (location.hash !== '#' + name) location.hash = name; } catch (e) {} route(name); }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (b) { if (b.disabled) return; const id = b.dataset.id, act = b.dataset.act, sub = () => derive().submitted.find(s => s.id === id); return act === 'logout' ? logout() : act === 'withdraw' ? withdraw(id) : act === 'approve' ? decide(sub(), 'queued') : act === 'decline' ? decide(sub(), 'rejected') : undecide(id); }
+  const m = e.target.closest('[data-mode]'); if (m) { live.mode = m.dataset.mode === 'own' ? 'own' : 'kalshi'; live.msg = null; applyMode(); return paintLive(); }
+  const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); go(g.dataset.go); }
+});
+document.addEventListener('submit', e => {
+  const f = e.target.closest('form[data-form]'); if (!f) return;
+  e.preventDefault();
+  f.dataset.form === 'login' ? loginForm(f) : f.dataset.form === 'queue' ? queueForm(f) : submitForm(f);
+});
+pickEl.addEventListener('change', () => go('run-' + pickEl.value));
+addEventListener('hashchange', () => route(location.hash.slice(1)));
+function showTip(el, x, y) {
+  if (!el) { if (!tip.hidden) tip.hidden = true; return; }
+  tip.textContent = el.dataset.tip; tip.hidden = false;
+  tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, x + 12)) + 'px';
+  tip.style.top = Math.max(8, y - tip.offsetHeight - 10) + 'px';
+}
+const tipEl = e => e.target instanceof Element ? e.target.closest('[data-tip]') : null;
+document.addEventListener('pointermove', e => showTip(tipEl(e), e.clientX, e.clientY));
+document.addEventListener('pointerdown', e => showTip(tipEl(e), e.clientX, e.clientY));
+document.addEventListener('focusin', e => { const el = tipEl(e); if (el && el.matches(':focus-visible')) { const r = el.getBoundingClientRect(); showTip(el, r.left, r.top); } });
+document.addEventListener('focusout', () => { tip.hidden = true; });
+// the dialog sits above the page, so the tooltip moves inside it while it is open
+const dlg = $('#metrics');
+dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-close]')) dlg.close(); });
+dlg.addEventListener('close', () => { document.body.appendChild(tip); tip.hidden = true; });
+document.addEventListener('pointerleave', () => { tip.hidden = true; });
+
+function mountReplay(D) {
+view.appendChild($('#tpl-run').content.cloneNode(true));
+const ac = new AbortController(); let alive = true;
+const on = (type, fn) => addEventListener(type, fn, { signal: ac.signal });
+const R = D.rounds, LAST = R + 1, END = R + 2;           // step 0 opening, 1..R rounds, R+1 final
+const A = D.agents, NA = A.length;
+const ix = Object.fromEntries(A.map((a, i) => [a.id, i]));
+const LIKE = [255, 92, 138];
+A.forEach((a, i) => a.c = COLORS[i % COLORS.length]);
+const pct = (p, d = 0) => p == null ? '–' : (p * 100).toFixed(d) + '%';
+const side = p => p == null ? '–' : (p >= .5 ? 'YES ' : 'NO ') + pct(p);
+const clip = (s, n) => { s = String(s || ''); return s.length <= n ? s : s.slice(0, n).replace(/\s+\S*$/, '') + ' …'; };
+const clamp = p => Math.max(1e-4, Math.min(1 - 1e-4, p));
+const logit = p => Math.log(clamp(p) / (1 - clamp(p)));
+const pool = ps => { ps = ps.filter(p => p != null); if (!ps.length) return null; const m = ps.reduce((s, p) => s + logit(p), 0) / ps.length; return 1 / (1 + Math.exp(-m)); };
+const sd = ps => { ps = ps.filter(p => p != null); if (ps.length < 2) return null; const m = ps.reduce((s, p) => s + p, 0) / ps.length; return Math.sqrt(ps.reduce((s, p) => s + (p - m) ** 2, 0) / ps.length); };
+const countAt = (arr, tt) => { let c = 0; for (const x of arr) if (x <= tt) c++; return c; };
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function belief(p) {
+  if (p == null) return [120, 124, 132];
+  const u = Math.max(0, Math.min(1, (p - 0.2) / 0.6)), no = [255, 109, 91], mid = [214, 208, 196], yes = [69, 223, 190];
+  const [a, b, k] = u < .5 ? [no, mid, u * 2] : [mid, yes, (u - .5) * 2];
+  return a.map((v, i) => Math.round(v + (b[i] - v) * k));
+}
+
+// ---------- graph: every node and link is something real in the run ----------
+let seed = 11; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+const nodes = [], links = [];
+const node = o => { o.n = nodes.length; nodes.push(o); return o; };
+const link = (a, b, kind, at, ai) => links.push({ a, b, kind, at, ai });
+const Qn = node({ kind: 'q', at: -1, r: 12, x: 0, y: 0, z: 0 });
+const LENS = ['numbers', 'facts', 'people', 'doubts'];
+const tet = [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]];
+const lensN = Object.fromEntries(LENS.map((l, i) => [l, node({ kind: 'lens', name: l, at: -1, r: 4.5, x: tet[i][0] * 62, y: tet[i][1] * 62, z: tet[i][2] * 62 })]));
+const fib = (i, n) => { const y = 1 - (2 * (i + .5)) / n, r = Math.sqrt(1 - y * y), th = i * 2.399963; return [Math.cos(th) * r, y, Math.sin(th) * r]; };
+const hubs = A.map((a, i) => { const [x, y, z] = fib(i, NA), d = 232 + rnd() * 56; return node({ kind: 'hub', a: i, at: -1, r: 9, x: x * d, y: y * d * .82, z: z * d }); });
+hubs.forEach(h => { link(h, Qn, 'spoke', -1, h.a); A[h.a].lenses.forEach(l => lensN[l] && link(h, lensN[l], 'read', -1, h.a)); });
+const SLOT = .085, RING = Math.min(12, 80 / LAST);       // agents post one after another inside a step
+const postOf = A.map(() => []);
+const postN = D.posts.map(p => {
+  const a = ix[p.agent], h = hubs[a], [x, y, z] = fib((p.round * 5 + a * 3) % 13, 13), d = 30 + p.round * RING + rnd() * 10;
+  const n = node({ kind: 'post', a, p, at: p.round + .04 + a * SLOT, r: 3.8, x: h.x + x * d, y: h.y + y * d, z: h.z + z * d, replyAt: [], likeAt: [], replyTo: [], liked: [] });
+  postOf[a][p.round] = n; return n;
+});
+const before = (b, r) => { for (let rr = r - 1; rr >= 0; rr--) if (postOf[b][rr]) return postOf[b][rr]; return null; };
+const ansT = [], likeT = [];
+postN.forEach(n => {
+  link(n, hubs[n.a], 'own', n.at, n.a);
+  n.p.answers.forEach(id => { const tg = before(ix[id], n.p.round); if (!tg) return; const at = n.at + .012; link(n, tg, 'ans', at, n.a); tg.replyAt.push(at); n.replyTo.push(tg); ansT.push(at); });
+  (n.p.likes || []).forEach((id, j) => { const tg = before(ix[id], n.p.round); if (!tg) return; const at = n.at + .035 + j * .03; link(n, tg, 'like', at, n.a); tg.likeAt.push(at); n.liked.push({ tg, at }); likeT.push(at); });
+});
+const finalN = A.map((a, i) => { const h = hubs[i], [x, y, z] = fib(12, 13), d = 30 + LAST * RING + 12; const n = node({ kind: 'final', a: i, at: LAST + .04 + i * SLOT, r: 4.4, x: h.x + x * d, y: h.y + y * d, z: h.z + z * d, replyAt: [], likeAt: [] }); link(n, h, 'own', n.at, i); return n; });
+const series = A.map((a, i) => { const s = []; let last = null; for (let r = 0; r <= R; r++) { const n = postOf[i][r]; if (n && n.p.prob != null) last = n.p.prob; s.push(last); } s.push(a.final); return s; });
+const meanAt = Array.from({ length: END }, (_, s) => pool(series.map(v => v[s])));
+const likesOf = (i, tt) => postOf[i].reduce((s, n) => s + (n ? countAt(n.likeAt, tt) : 0), 0);
+
+// ---------- state ----------
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let t = still ? END : 0, playing = !still, speed = 1, mode = 'agent', sel = null, shownStep = -1;
+let userYaw = 0, pitch = -0.3;
+const STEP_SEC = 9;
+const stepOf = tt => Math.max(0, Math.min(LAST, Math.floor(tt)));
+function probAt(a, tt) {
+  if (tt >= finalN[a].at) return A[a].final;
+  for (let r = Math.min(R, Math.floor(tt)); r >= 0; r--) { const n = postOf[a][r]; if (n && n.at <= tt && n.p.prob != null) return n.p.prob; }
+  return null;
+}
+
+// ---------- static chrome ----------
+$('#q').textContent = D.question;
+$('#counts').textContent = `${D.question_id}, ${NA} agents, ${R} rounds`; delete $('#counts').dataset.tip;
+$('#scrub').max = END;
+$('#legend').innerHTML = A.map((a, i) => `<li><button data-a="${i}" style="--c:${a.c}"><span class="dot"></span><span class="nm">${esc(a.name)}${a.challenger ? '<i>challenger</i>' : ''}</span><span class="lk" id="ll${i}">♥0</span><span class="pv" id="lv${i}">–</span></button></li>`).join('');
+const pills = $('#pills');
+const hubPill = hubs.map(h => { const b = document.createElement('button'); b.className = 'pill' + (A[h.a].challenger ? ' ch' : ''); b.style.setProperty('--c', A[h.a].c); b.dataset.a = h.a; b.innerHTML = `${esc(A[h.a].name)}<b>–</b><i></i>`; pills.appendChild(b); return b; });
+const lensTag = LENS.map(l => { const d = document.createElement('div'); d.className = 'tag'; d.textContent = l; pills.appendChild(d); return d; });
+const qTag = document.createElement('div'); qTag.className = 'tag'; qTag.textContent = 'the question'; pills.appendChild(qTag);
+const BUB = .2;                                         // how long a post's bubble stays on the graph, in steps
+const bubs = [...postN, ...finalN].map(n => {
+  const b = document.createElement('button'), fin = n.kind === 'final'; b.className = 'bub'; b.hidden = true; b.dataset.n = n.n; b.style.setProperty('--c', A[n.a].c);
+  b.innerHTML = `<b>${esc(A[n.a].name)}</b><em>${side(fin ? A[n.a].final : n.p.prob)}</em>${fin ? ' final' : ''}<span>${esc(clip(fin ? A[n.a].why : n.p.text, 84))}</span>`;
+  pills.appendChild(b); return { n, b, on: false };
+});
+const calls = D.usage.reduce((s, u) => s + u[1], 0), tin = D.usage.reduce((s, u) => s + u[2], 0);
+const secs = Math.round((new Date(D.finished.replace(' ', 'T')) - new Date(D.started.replace(' ', 'T'))) / 1000);
+const tout = D.usage.reduce((s, u) => s + u[3], 0);
+// one scale for this run's strips and charts: wide enough for every agent, the market and the single call
+const spanV = [...series.flat(), D.market, D.a0].filter(p => p != null);
+const LO = Math.max(0, Math.floor((Math.min(...spanV) - .03) * 10) / 10), HI = Math.min(1, Math.ceil((Math.max(...spanV) + .03) * 10) / 10);
+const posN = p => Math.max(0, Math.min(1, (p - LO) / (HI - LO))) * 100, pos = p => posN(p).toFixed(1) + '%';
+const bcol = p => p == null ? 'inherit' : `rgb(${belief(p).join(',')})`;                  // red leans NO, teal leans YES
+const prob = (p, d = 1) => `<span style="color:${bcol(p)}">${pct(p, d)}</span>`;
+const outcomeHtml = D.outcome == null ? 'open' : `<span style="color:var(--${D.outcome ? 'yes' : 'no'})">${D.outcome ? 'YES' : 'NO'}</span>`;
+const T = {
+  market: 'The market price for YES when the brief was frozen. No agent ever sees it.',
+  a0: 'One plain model call on the whole brief, with no panel. The cheap answer the panel has to beat.',
+  prior: 'The ten forecasts made alone, before anyone posted, pooled into one number.',
+  final: 'The ten private final forecasts, pooled into one number. This is the forecast that gets scored.',
+  now: 'The pooled forecast at the point the replay has reached.',
+  spread: 'How far apart the ten agents are at this point: the standard deviation of their numbers, in points.',
+  outcome: 'How the question resolved. It stays open until the market settles.',
+  score: 'Brier score of the panel final: the squared gap between the forecast and the outcome. 0 is perfect. Always saying 50% scores 0.250.',
+  posts: 'Posts made in the discussion rounds.',
+  calls: `10 forecasts alone, 10 posts in each of ${R} rounds, 10 final forecasts.`,
+  tin: 'Tokens the model read across all calls. Every post rereads the whole thread, so this grows faster than the number of rounds.',
+  tout: 'Tokens the model wrote: forecasts, reasons and posts.',
+  secs: 'Time from the first call to the last.',
+  moved: 'Panel final less the number before talking, in points. What the discussion changed.',
+  gap: D.market != null ? 'Panel final less the market price at freeze, in points.' : 'Panel final less the single call on the brief, in points. This question has no market price.',
+  nomarket: 'This question has no market price, so the single call on the brief stands in for it.',
+  spread2: 'Standard deviation of the ten forecasts, in points: alone first, then final. A falling number means the agents moved together.',
+  replies: 'Each time a post names another agent counts as one reply. One post can answer several.',
+  likes: 'Private marks an agent gives to up to two posts that helped it. The panel never sees them.',
+};
+$('#f-strip').innerHTML = `<span>${pct(LO)}</span><div class="strip zoom" data-tip="${esc('Where the numbers sit, from ' + pct(LO) + ' to ' + pct(HI) + '.\nTick: market at freeze\nRing: single call\nGrey dot: panel before talking\nViolet dot: panel final\nPointer: panel now')}">`
+  + (LO < .5 && HI > .5 ? `<i class="half" style="left:${pos(.5)}"></i>` : '')
+  + (D.market != null ? `<i class="mk" style="left:${pos(D.market)}"></i>` : '') + (D.a0 != null ? `<i class="sc" style="left:${pos(D.a0)}"></i>` : '')
+  + (D.aggregates.prior != null ? `<i class="al" style="left:${pos(D.aggregates.prior)}"></i>` : '') + (D.aggregates.equal != null ? `<i class="fi" style="left:${pos(D.aggregates.equal)}"></i>` : '')
+  + `<i class="nw" id="f-nowmark" hidden></i></div><span>${pct(HI)}</span>`;
+$('#figs').innerHTML = [
+  D.market != null ? ['Market at freeze', prob(D.market, 0), 'mk', T.market] : ['No market, single call', prob(D.a0), 'sc', T.nomarket], ['Single call', prob(D.a0), 'sc', T.a0],
+  ['Before talking', prob(D.aggregates.prior), 'al', T.prior], ['Panel final', prob(D.aggregates.equal), 'fi', T.final],
+  ['Panel now', '<span id="f-now">–</span>', 'nw', T.now], ['Spread now', '<span id="f-sd">–</span>', '', T.spread],
+  ['Outcome', outcomeHtml, '', T.outcome], ['Score', D.brier == null ? '–' : D.brier.toFixed(3), '', T.score],
+  ['Model calls', calls, '', T.calls], ['Tokens written', (tout / 1e3).toFixed(1) + 'k', '', T.tout],
+  ['Tokens read', (tin / 1e6).toFixed(2) + 'M', '', T.tin], ['Run time', secs + ' s', '', T.secs],
+].map(([k, v, m, tp]) => `<div tabindex="0" data-tip="${esc(tp)}"><dt>${m ? `<i class="${m}"></i>` : ''}${k}</dt><dd>${v}</dd></div>`).join('');
+
+// ---------- every metric for this run, with charts, in a dialog ----------
+function metricsHtml() {
+  const ag = D.aggregates, f1 = x => x == null ? '–' : (x * 100).toFixed(1), sg = x => x == null ? '–' : (x > 0 ? '+' : '') + x.toFixed(1);
+  const steps = Array.from({ length: END }, (_, s) => { const v = series.map(x => x[s]).filter(p => p != null); return { mean: meanAt[s], sd: sd(v), lo: Math.min(...v), hi: Math.max(...v) }; });
+  const sName = s => s === 0 ? 'open' : s === LAST ? 'final' : String(s), sLong = s => s === 0 ? 'Opening forecasts' : s === LAST ? 'Final forecasts' : 'Round ' + s;
+  const xx = s => ((s + .5) / END * 100).toFixed(2), yy = p => (100 - posN(p)).toFixed(2);
+  const rep = [], lik = [];
+  for (let r = 1; r <= R; r++) { const ps = D.posts.filter(p => p.round === r); rep.push(ps.reduce((s, p) => s + p.answers.length, 0)); lik.push(ps.reduce((s, p) => s + p.likes.length, 0)); }
+  const nRep = rep.reduce((a, b) => a + b, 0), nLik = lik.reduce((a, b) => a + b, 0);
+  const moved = ag.equal != null && ag.prior != null ? (ag.equal - ag.prior) * 100 : null, REF = D.market != null ? D.market : D.a0, gap = ag.equal != null && REF != null ? (ag.equal - REF) * 100 : null;
+  const tiles = [
+    ['Panel final', prob(ag.equal), T.final], ['Before talking', prob(ag.prior), T.prior], ['Moved by talking, pts', sg(moved), T.moved],
+    D.market != null ? ['Market at freeze', prob(D.market, 0), T.market] : ['No market, single call', prob(D.a0), T.nomarket], ['Single call', prob(D.a0), T.a0], [D.market != null ? 'Panel less market, pts' : 'Panel less single call, pts', sg(gap), T.gap],
+    ['Spread, pts', `${f1(steps[0].sd)} to ${f1(steps[LAST].sd)}`, T.spread2], ['Outcome', outcomeHtml, T.outcome], ['Score', D.brier == null ? '–' : D.brier.toFixed(3), T.score],
+    ['Posts', D.posts.filter(p => p.round >= 1 && p.round <= R).length, T.posts], ['Model calls', calls, T.calls], ['Tokens read', (tin / 1e6).toFixed(2) + 'M', T.tin], ['Tokens written', (tout / 1e3).toFixed(1) + 'k', T.tout],
+    ['Run time', secs + ' s', T.secs], ['Replies', nRep, T.replies], ['Likes', D.has_likes ? nLik : 'not kept', T.likes],
+  ].map(([k, v, tp]) => `<div class="tile" tabindex="0" data-tip="${esc(tp)}"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+
+  // the panel's number by round: pooled line, band from the lowest agent to the highest, market and single call as reference lines
+  const ticks = []; for (let v = Math.round(LO * 10); v <= Math.round(HI * 10); v++) ticks.push(v / 10);
+  const band = steps.map((st, s) => `${xx(s)},${yy(st.hi)}`).join(' ') + ' ' + steps.map((st, s) => `${xx(s)},${yy(st.lo)}`).reverse().join(' ');
+  const maxSd = Math.max(...steps.map(st => st.sd || 0), 1e-9), xax = `<div></div><div class="xax">${steps.map((_, s) => `<span>${sName(s)}</span>`).join('')}</div>`;
+  const byRound = `<div class="key"><span><i class="ln2"></i>panel, pooled</span><span><i class="sw bd"></i>lowest to highest agent</span>${D.market != null ? '<span><i class="dash"></i>market at freeze</span>' : ''}${D.a0 != null ? '<span><i class="dash dot"></i>single call</span>' : ''}</div>
+    <div class="plotgrid">
+      <div class="yax">${ticks.map(v => `<span style="top:${yy(v)}%">${pct(v)}</span>`).join('')}</div>
+      <div class="area">${ticks.map(v => `<div class="gl" style="top:${yy(v)}%"></div>`).join('')}
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points="${band}" fill="rgba(157,140,245,.22)"/><polyline points="${steps.map((st, s) => `${xx(s)},${yy(st.mean)}`).join(' ')}" fill="none" stroke="#e9e6df" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>
+        ${D.market != null ? `<div class="ref${D.market < steps[LAST].mean ? ' under' : ''}" style="top:${yy(D.market)}%"><span>market ${pct(D.market)}</span></div>` : ''}${D.a0 != null ? `<div class="ref dot${D.a0 < steps[0].mean ? ' under' : ''}" style="top:${yy(D.a0)}%"><span>single call ${pct(D.a0, 1)}</span></div>` : ''}
+        ${steps.map((st, s) => `<i class="pt" style="left:${xx(s)}%;top:${yy(st.mean)}%"></i>`).join('')}
+        <div class="cols-x">${steps.map((st, s) => `<div data-tip="${esc(`${sLong(s)}\nPanel ${pct(st.mean, 1)}\nLowest agent ${pct(st.lo)}, highest ${pct(st.hi)}\nSpread ${f1(st.sd)} pts`)}"></div>`).join('')}</div>
+      </div>${xax}
+      <p class="sub">Spread between agents, in points</p>
+      <div class="yax"><span style="top:0">${f1(maxSd)}</span><span style="top:100%">0</span></div>
+      <div class="bars">${steps.map((st, s) => `<div data-tip="${esc(`${sLong(s)}\nSpread ${f1(st.sd)} pts`)}"><i style="height:${((st.sd || 0) / maxSd * 100).toFixed(1)}%"></i></div>`).join('')}</div>${xax}
+    </div>`;
+
+  const maxTalk = Math.max(1, ...rep, ...(D.has_likes ? lik : []));
+  const talk = `<div class="key"><span><i class="sw rp"></i>replies</span>${D.has_likes ? '<span><i class="sw lk"></i>likes</span>' : ''}</div>
+    <div class="plotgrid">
+      <div class="yax"><span style="top:0">${maxTalk}</span><span style="top:100%">0</span></div>
+      <div class="bars two" style="height:110px">${rep.map((n, k) => `<div data-tip="${esc(`Round ${k + 1}\nReplies ${n}` + (D.has_likes ? `\nLikes ${lik[k]}` : ''))}"><i class="rp" style="height:${(n / maxTalk * 100).toFixed(1)}%"></i>${D.has_likes ? `<i class="lk" style="height:${(lik[k] / maxTalk * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}</div>
+      <div></div><div class="xax">${rep.map((_, k) => `<span>${k + 1}</span>`).join('')}</div>
+    </div>`;
+
+  const STAGE = { elicit: 'Forecasts, alone and final', discussion: 'Discussion posts' }, maxT = Math.max(...D.usage.map(u => u[2]), 1);
+  const useRows = D.usage.map(u => `<tr><td class="nw">${esc(STAGE[u[0]] || u[0])}</td>
+      <td><span class="mag" data-tip="${esc(`${STAGE[u[0]] || u[0]}\n${(u[2] / 1e3).toFixed(0)}k tokens read, ${(u[2] / tin * 100).toFixed(0)}% of the run`)}"><i style="width:${(u[2] / maxT * 100).toFixed(1)}%"></i></span></td>
+      <td class="n">${u[1]}</td><td class="n">${(u[2] / 1e3).toFixed(0)}k</td><td class="n">${(u[3] / 1e3).toFixed(1)}k</td></tr>`).join('')
+    + `<tr class="total"><td>Total</td><td></td><td class="n">${calls}</td><td class="n">${(tin / 1e3).toFixed(0)}k</td><td class="n">${(tout / 1e3).toFixed(1)}k</td></tr>`;
+
+  const gotRep = A.map(a => D.posts.reduce((s, p) => s + (p.round > 0 && p.answers.includes(a.id) ? 1 : 0), 0)), gotLik = A.map((_, i) => likesOf(i, Infinity)), maxLik = Math.max(1, ...gotLik);
+  const agentRows = A.map((a, i) => {
+    const alone = series[i][0], mv = alone != null && a.final != null ? (a.final - alone) * 100 : null;
+    const tipText = `${a.name}\nAlone ${pct(alone)}, final ${pct(a.final)}\nMoved ${sg(mv)} pts`;
+    return `<tr><td class="nw"><span class="who" style="--c:${a.c}"><i></i>${esc(a.name)}</span>${a.challenger ? '<span class="flag">challenger</span>' : ''}</td>
+      <td class="nw">${esc(a.lenses.join(', '))}</td>
+      <td><div class="strip zoom db" data-tip="${esc(tipText)}">${alone != null && a.final != null ? `<u style="left:${Math.min(posN(alone), posN(a.final)).toFixed(1)}%;width:${Math.abs(posN(a.final) - posN(alone)).toFixed(1)}%;background:${a.c}"></u>` : ''}${alone != null ? `<i class="al" style="left:${pos(alone)}"></i>` : ''}${a.final != null ? `<i class="fi" style="left:${pos(a.final)};background:${a.c}"></i>` : ''}</div></td>
+      <td class="n">${pct(alone)}</td><td class="n"><b>${pct(a.final)}</b></td><td class="n">${sg(mv)}</td><td class="n">${gotRep[i]}</td>
+      ${D.has_likes ? `<td><span class="mag lk" data-tip="${esc(a.name + '\n' + gotLik[i] + ' likes received')}"><i style="width:${(gotLik[i] / maxLik * 100).toFixed(1)}%${gotLik[i] ? '' : ';min-width:0'}"></i></span></td><td class="n">${gotLik[i]}</td>` : '<td class="dimc" colspan="2">not kept</td>'}</tr>`;
+  }).join('');
+
+  return `<header><h2>${esc(D.question)}<small>${esc(D.question_id)}, run ${D.run_id}, ${R} rounds, finished ${D.finished.slice(0, 16)} UTC</small></h2>
+      <button class="mx" data-close aria-label="Close">✕</button></header>
+    <div class="mbody ov">
+      <section class="mtiles">${tiles}</section>
+      <div class="cols">
+        <section class="card a-fin"><header>${head('Forecast by round', 'The pooled forecast after each step, with the range from the lowest agent to the highest. Hover a round for its numbers.')}</header><div class="plot">${byRound}</div></section>
+        <div class="stack">
+          <section class="card a-rej"><header>${head('Talk by round', 'Replies are posts that name another agent. Likes are private marks on posts.')}</header><div class="plot">${talk}</div></section>
+          <section class="card a-que"><header>${head('Model use by stage', 'Model calls for each stage of the run. Read and written are tokens. The bar is the share of tokens read.')}</header>
+            <div class="scroll"><table><thead><tr><th>Stage</th><th>Share</th><th class="n">Calls</th><th class="n">Read</th><th class="n">Written</th></tr></thead><tbody>${useRows}</tbody></table></div></section>
+        </div>
+      </div>
+      <section class="card a-ag"><header>${head('Agents', 'Grey dot is the forecast alone, the coloured dot is the final one. Reads are the two parts of the brief the agent was given.')}</header>
+        <div class="scroll"><table><thead><tr><th>Agent</th><th>Reads</th><th>${pct(LO)} to ${pct(HI)}</th><th class="n">Alone</th><th class="n">Final</th><th class="n">Moved, pts</th><th class="n">Replies to it</th><th>Likes received</th><th class="n"></th></tr></thead><tbody>${agentRows}</tbody></table></div></section>
+    </div>`;
+}
+$('#expand').addEventListener('click', () => { document.body.appendChild(tip); tip.hidden = true; dlg.innerHTML = metricsHtml(); dlg.appendChild(tip); dlg.showModal(); dlg.querySelector('.mbody').scrollTop = 0; });
+
+// ---------- the log: one line per thing that happened, in the order it happened ----------
+const STEP_TEXT = s => s === 0 ? ['Opening forecasts', 'each agent forecast alone, before anyone spoke']
+  : s === LAST ? ['Final forecasts', 'given in private after the discussion; these are scored']
+  : [`Round ${s} of ${R}`, 'all ten post at once; likes are private to the agent'];
+const delta = (now, was) => { if (now == null || was == null) return ''; const d = Math.round((now - was) * 100); return `<span class="dl ${d > 0 ? 'up' : d < 0 ? 'dn' : ''}">${d > 0 ? '+' + d : d < 0 ? d : '='}</span>`; };
+const nameTag = i => `<b style="color:${A[i].c}">${esc(A[i].name)}</b>`;
+const which = n => n.p.round === 0 ? 'opening post' : `round ${n.p.round} post`;
+const tagOf = s => s === 0 ? 'open' : s === LAST ? 'fin' : 'r' + s;
+const EV = [];
+function ev(at, cls, html, n) { const el = document.createElement('div'); el.className = 'ln ' + cls; el.innerHTML = html; if (n) { el.dataset.n = n.n; el.style.setProperty('--c', A[n.a].c); } EV.push({ at, el, n, cls }); }
+for (let s = 0; s <= LAST; s++) { const [a, b] = STEP_TEXT(s); ev(s, 'hd', `${a}<small># ${b}</small>`); }
+postN.forEach(n => {
+  const a = A[n.a], r = n.p.round, tg = `<span class="tg">${tagOf(r)}</span>`;
+  ev(n.at, 'post', `${tg}<span class="nm">${esc(a.name)}</span>${a.challenger ? '<span class="ch">challenger</span>' : ''}<span class="st">${side(n.p.prob)}</span>${delta(n.p.prob, r > 0 ? series[n.a][r - 1] : null)}<p>${esc(n.p.text)}</p>`, n);
+  n.replyTo.forEach(to => ev(n.at + .012, 'ev', `${tg}<span class="gl">↳</span><span>${nameTag(n.a)} replied to ${nameTag(to.a)}</span>`, to));
+  n.liked.forEach(l => ev(l.at, 'ev', `${tg}<span class="gl lk">♥</span><span>${nameTag(n.a)} liked ${nameTag(l.tg.a)}'s ${which(l.tg)}</span>`, l.tg));
+});
+finalN.forEach(n => { const a = A[n.a]; ev(n.at, 'post', `<span class="tg">fin</span><span class="nm">${esc(a.name)}</span>${a.challenger ? '<span class="ch">challenger</span>' : ''}<span class="st">${side(a.final)}</span>${delta(a.final, series[n.a][R])}<p>${esc(a.why)}</p>`, n); });
+ev(LAST + .93, 'end', `<span class="tg">done</span><span>panel ${pct(D.aggregates.equal, 1)} ${D.market == null ? '' : ' · market ' + pct(D.market)} · single call ${pct(D.a0, 1)}${D.outcome == null ? '' : ' · outcome ' + (D.outcome ? 'YES' : 'NO')}</span>`);
+EV.sort((x, y) => x.at - y.at);
+const term = $('#term'), cursor = $('#cursor');
+let shown = 0;
+function syncTerm() {
+  let n = shown;
+  while (n < EV.length && EV[n].at <= t) n++;
+  while (n > 0 && EV[n - 1].at > t) n--;
+  if (n === shown) return;
+  const stick = n < shown || term.scrollHeight - term.scrollTop - term.clientHeight < 60;
+  if (n > shown) { const f = document.createDocumentFragment(); for (let i = shown; i < n; i++) f.appendChild(EV[i].el); term.insertBefore(f, cursor); }
+  else for (let i = shown - 1; i >= n; i--) EV[i].el.remove();
+  shown = n;
+  if (stick) term.scrollTop = term.scrollHeight;
+}
+
+// ---------- reading one thing ----------
+function cardHtml(n) {
+  const a = A[n.a];
+  if (n.kind === 'final') return `<div class="ph"><span class="nm">${esc(a.name)}</span>${a.challenger ? '<span class="ch">challenger</span>' : ''}<span class="pv">${side(a.final)}</span>${delta(a.final, series[n.a][R])}</div><p>${esc(a.why)}</p>`;
+  const prev = n.p.round > 0 ? series[n.a][n.p.round - 1] : null;
+  const ans = n.replyTo.map(x => nameTag(x.a)).join(', '), lk = n.liked.map(x => nameTag(x.tg.a)).join(', ');
+  const likers = links.filter(l => l.kind === 'like' && l.b === n && l.at <= t).map(l => nameTag(l.ai)).join(', ');
+  const repliers = links.filter(l => l.kind === 'ans' && l.b === n && l.at <= t).map(l => nameTag(l.ai)).join(', ');
+  return `<div class="ph"><span class="nm">${esc(a.name)}</span>${a.challenger ? '<span class="ch">challenger</span>' : ''}<span class="pv">${side(n.p.prob)}</span>${delta(n.p.prob, prev)}</div><p>${esc(n.p.text)}</p><div class="pf">`
+    + (ans ? `<span>↳ replies to ${ans}</span>` : '') + (lk ? `<span>♥ liked ${lk}</span>` : '')
+    + (repliers ? `<span>replied to by ${repliers}</span>` : '') + (likers ? `<span>liked by ${likers}</span>` : '') + '</div>';
+}
+function renderSel() {
+  const box = $('#sel');
+  if (!sel) { box.hidden = true; markSel(); return; }
+  const n = sel.node, a = A[sel.a];
+  let h = `<button class="x" id="selx" aria-label="Close">close</button>`;
+  if (n.kind !== 'hub') h += `<div class="k">${n.kind === 'final' ? 'Final forecast' : n.p.round === 0 ? 'Opening forecast' : 'Round ' + n.p.round}</div><div style="--c:${a.c}">${cardHtml(n)}</div>`;
+  else h += `<div class="k">Agent</div><div class="ph" style="--c:${a.c}"><span class="nm">${esc(a.name)}</span>${a.challenger ? '<span class="ch">challenger this question</span>' : ''}</div>
+    <dl><dt>method</dt><dd>${esc(a.method)}</dd><dt>read</dt><dd>${esc(a.lenses.join(' and '))}</dd><dt>alone</dt><dd>${pct(series[sel.a][0])}</dd><dt>final</dt><dd>${pct(a.final)}</dd><dt>likes</dt><dd>${likesOf(sel.a, END)} received over the run</dd></dl>`;
+  box.innerHTML = h; box.hidden = false; markSel();
+}
+function markSel() {
+  EV.forEach(e => { if (e.cls === 'post') e.el.classList.toggle('sel', !!sel && sel.node === e.n); });
+  hubPill.forEach((b, i) => b.classList.toggle('sel', !!sel && sel.a === i));
+  document.querySelectorAll('#legend button').forEach(b => b.classList.toggle('sel', !!sel && sel.a === +b.dataset.a));
+}
+const pick = n => { sel = n && n.a != null ? { a: n.a, node: n } : null; renderSel(); };
+const toggle = n => pick(sel && sel.node === n ? null : n);
+term.addEventListener('click', e => { const ln = e.target.closest('.ln[data-n]'); if (ln) toggle(nodes[+ln.dataset.n]); });
+$('#sel').addEventListener('click', e => { if (e.target.id === 'selx') pick(null); });
+$('#legend').addEventListener('click', e => { const b = e.target.closest('button'); if (b) toggle(hubs[+b.dataset.a]); });
+pills.addEventListener('click', e => { const b = e.target.closest('.pill'); if (b) return toggle(hubs[+b.dataset.a]); const u = e.target.closest('.bub'); if (u) toggle(nodes[+u.dataset.n]); });
+function setMode(m) { mode = m; $('#mode-agent').setAttribute('aria-pressed', m === 'agent'); $('#mode-belief').setAttribute('aria-pressed', m === 'belief'); $('#scale').hidden = m !== 'belief'; }
+$('#mode-agent').onclick = () => setMode('agent'); $('#mode-belief').onclick = () => setMode('belief');
+
+// ---------- transport ----------
+function setPlaying(p) { playing = p; $('#pp').textContent = p ? 'Pause' : (t >= END ? 'Replay' : 'Play'); }
+$('#pp').onclick = () => { if (!playing && t >= END) t = 0; setPlaying(!playing); };
+$('#sp').onclick = () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; $('#sp').textContent = speed + '×'; };
+$('#scrub').addEventListener('input', e => { t = +e.target.value; setPlaying(false); });
+on('keydown', e => { if (e.code === 'Space' && !dlg.open && !/INPUT|BUTTON|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#pp').click(); } });
+
+// ---------- stage ----------
+const stage = $('#stage'), cv = $('#cv'), g = cv.getContext('2d');
+let W = 0, H = 0, dpr = 1;
+function fit() { dpr = Math.min(2, devicePixelRatio || 1); W = stage.clientWidth; H = stage.clientHeight; cv.width = W * dpr; cv.height = H * dpr; }
+const ro1 = new ResizeObserver(fit); ro1.observe(stage); fit();
+let yaw = 0, visLinks = 0;
+function project() {
+  const wide = innerWidth > 880, cx = W / 2 + (wide ? Math.min(100, W * .1) : 0), cy = H / 2 + 6;
+  const zoom = Math.min((W - (wide ? 236 : 0)) / 700, H / 600), F = 950;
+  const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  for (const n of nodes) {
+    const x = n.x * cyw + n.z * syw, z = -n.x * syw + n.z * cyw, y2 = n.y * cp - z * sp, z2 = n.y * sp + z * cp, s = F / (F + z2) * zoom;
+    n.sx = cx + x * s; n.sy = cy + y2 * s; n.s = s; n.d = z2; n.fog = Math.max(.3, Math.min(1, 1.02 - (z2 + 330) / 1000));
+  }
+}
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const colOf = n => mode === 'belief' ? belief(n.kind === 'post' ? n.p.prob : n.kind === 'final' ? A[n.a].final : probAt(n.a, t)) : hexRgb(A[n.a].c);
+const BASE = { spoke: .3, read: .1, own: .26, ans: .2, like: .1 }, FRESH = { own: .25, ans: .45, like: .3 };
+const MONO = '"JetBrains Mono", monospace';
+function draw() {
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  project(); visLinks = 0;
+  const hot = n => sel && (sel.node === n || (sel.node.kind === 'hub' && n.a === sel.a));
+  const flying = [];
+  for (const l of links) {
+    const born = l.at < 0 ? 9 : t - l.at; if (born < 0) continue; visLinks++;
+    const fog = Math.min(l.a.fog, l.b.fog), like = l.kind === 'like';
+    const c = like ? LIKE : l.kind === 'read' ? [150, 155, 165] : mode === 'belief' ? colOf(l.a) : hexRgb(A[l.ai].c);
+    const fresh = l.at < 0 ? 0 : Math.max(0, 1 - born / FRESH[l.kind]), on = sel ? (hot(l.a) || hot(l.b)) : false;
+    let al = BASE[l.kind] * fog;
+    if (sel) al = on ? Math.min(1, al * 3.2) : al * .3;
+    g.lineWidth = (like || l.kind === 'ans') ? 1 + fresh * 1.2 : 1;
+    g.strokeStyle = fresh > 0 ? rgba(like ? LIKE : [255, 255, 255], Math.min(1, al + fresh * .8)) : rgba(c, al);
+    g.beginPath(); g.moveTo(l.a.sx, l.a.sy); g.lineTo(l.b.sx, l.b.sy); g.stroke();
+    if (fresh > 0 && (like || l.kind === 'ans')) { const u = Math.min(1, born / (FRESH[l.kind] * .55)); flying.push([l.a.sx + (l.b.sx - l.a.sx) * u, l.a.sy + (l.b.sy - l.a.sy) * u, like, l.b.s]); }
+  }
+  const order = [...nodes].sort((a, b) => b.d - a.d);
+  for (const n of order) {
+    const born = n.at < 0 ? 9 : t - n.at, live = born >= 0, dim = sel && !hot(n) && n.kind !== 'q' ? .35 : 1;
+    if (n.kind === 'q') {
+      g.fillStyle = 'rgba(157,140,245,.18)'; g.beginPath(); g.arc(n.sx, n.sy, n.r * n.s * 1.7, 0, 7); g.fill();
+      g.fillStyle = '#9d8cf5'; g.beginPath(); g.arc(n.sx, n.sy, n.r * n.s, 0, 7); g.fill();
+      g.fillStyle = '#0c1322'; g.font = `700 ${Math.round(13 * n.s)}px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('Q', n.sx, n.sy + 1);
+      continue;
+    }
+    if (n.kind === 'lens') { g.fillStyle = `rgba(170,175,185,${.55 * n.fog})`; g.beginPath(); g.arc(n.sx, n.sy, n.r * n.s, 0, 7); g.fill(); continue; }
+    if (!live) { g.fillStyle = `rgba(140,146,156,${.13 * n.fog})`; g.beginPath(); g.arc(n.sx, n.sy, 2.2 * n.s, 0, 7); g.fill(); continue; }
+    const c = colOf(n), fresh = n.at < 0 ? 0 : Math.max(0, 1 - born / .3), pop = Math.min(1, born / .03), al = n.fog * dim;
+    const r = (n.kind === 'post' ? n.r + Math.min(3, countAt(n.replyAt, t)) * .9 : n.r) * n.s * pop;
+    if (fresh > 0) { g.fillStyle = `rgba(255,255,255,${.22 * fresh})`; g.beginPath(); g.arc(n.sx, n.sy, r + 9 * fresh, 0, 7); g.fill(); }
+    if (n.kind === 'final') {
+      g.strokeStyle = rgba(c, al); g.lineWidth = 1.6; g.beginPath(); g.arc(n.sx, n.sy, r, 0, 7); g.stroke();
+      g.fillStyle = rgba(c, al); g.beginPath(); g.arc(n.sx, n.sy, r * .42, 0, 7); g.fill();
+    } else {
+      g.fillStyle = fresh > .5 ? `rgba(255,255,255,${al})` : rgba(c, al * (n.kind === 'hub' ? 1 : .92)); g.beginPath(); g.arc(n.sx, n.sy, r, 0, 7); g.fill();
+      if (n.kind === 'hub') { g.strokeStyle = rgba(c, .45 * al); g.lineWidth = 1; if (A[n.a].challenger) g.setLineDash([3, 3]); g.beginPath(); g.arc(n.sx, n.sy, r + 4, 0, 7); g.stroke(); g.setLineDash([]); }
+    }
+    if (n.kind === 'post' && n.likeAt.length) {            // likes this post has by now: a pink ring, and the count
+      let L = 0, recent = 0; for (const x of n.likeAt) if (x <= t) { L++; recent = Math.max(recent, 1 - (t - x) / .35); }
+      if (L) {
+        g.strokeStyle = rgba(LIKE, (.55 + .45 * Math.max(0, recent)) * al); g.lineWidth = 1.2 + Math.max(0, recent);
+        g.beginPath(); g.arc(n.sx, n.sy, r + 2.5 + Math.min(L, 7) * .9, 0, 7); g.stroke();
+        if (L >= 3 || recent > 0) { g.fillStyle = rgba(LIKE, Math.min(1, al + .2)); g.font = `700 ${recent > 0 ? 11 : 9.5}px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('♥' + L, n.sx + r + 5 + Math.min(L, 7) * .9, n.sy); }
+      }
+    }
+    if (sel && sel.node === n && n.kind !== 'hub') { g.strokeStyle = '#fff'; g.lineWidth = 1.4; g.beginPath(); g.arc(n.sx, n.sy, r + 4, 0, 7); g.stroke(); }
+  }
+  for (const [x, y, like, s] of flying) {                  // a reply or a like on its way to the post it is about
+    if (like) { g.fillStyle = rgba(LIKE, 1); g.font = `700 ${Math.round(13 * Math.max(.8, s))}px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('♥', x, y); }
+    else { g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 2.6, 0, 7); g.fill(); }
+  }
+  hubs.forEach((h, i) => { const b = hubPill[i]; b.style.transform = `translate(${h.sx.toFixed(1)}px,${(h.sy - 13 * h.s).toFixed(1)}px) translate(-50%,-100%)`; b.style.opacity = (sel && sel.a !== i ? .45 : 1) * Math.min(1, h.fog + .15); b.style.zIndex = 1000 - Math.round(h.d); });
+  LENS.forEach((l, i) => { const n = lensN[l]; lensTag[i].style.transform = `translate(${(n.sx + 8).toFixed(1)}px,${(n.sy - 7).toFixed(1)}px)`; lensTag[i].style.opacity = n.fog * .9; });
+  qTag.style.transform = `translate(${Qn.sx.toFixed(1)}px,${(Qn.sy + 16 * Qn.s).toFixed(1)}px) translate(-50%,0)`;
+  for (const o of bubs) {                                  // what was just said, beside the dot that said it
+    const born = t - o.n.at, on = born >= 0 && born < BUB;
+    if (on !== o.on) { o.on = on; o.b.hidden = !on; }
+    if (!on) continue;
+    const left = o.n.sx > W * .6;
+    o.b.style.transform = `translate(${(o.n.sx + (left ? -10 : 10)).toFixed(1)}px,${(o.n.sy - 10).toFixed(1)}px) translate(${left ? '-100%' : '0'},-100%)`;
+    o.b.style.opacity = Math.min(1, (BUB - born) / .05).toFixed(2); o.b.style.zIndex = 3000 + Math.round(o.n.at * 100);
+  }
+}
+
+// drag to turn, click to read
+let down = null;
+stage.addEventListener('pointerdown', e => { if (e.target.closest('.pill, .bub')) return; down = { x: e.clientX, y: e.clientY, moved: 0 }; stage.classList.add('drag'); });
+on('pointermove', e => { if (!down) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; down.moved += Math.abs(dx) + Math.abs(dy); userYaw += dx * .006; pitch = Math.max(-1.1, Math.min(1.1, pitch - dy * .004)); down.x = e.clientX; down.y = e.clientY; });
+on('pointerup', e => {
+  if (!down) return; const was = down; down = null; stage.classList.remove('drag');
+  if (was.moved > 5) return;
+  const b = stage.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top; let best = null, bd = 14;
+  for (const n of nodes) { if (n.kind === 'q' || n.kind === 'lens' || (n.at >= 0 && n.at > t)) continue; const d = Math.hypot(n.sx - x, n.sy - y); if (d < bd) { bd = d; best = n; } }
+  pick(best);
+});
+on('pointercancel', () => { down = null; stage.classList.remove('drag'); });
+
+// the panel list can be moved around the graph and put back
+{
+  const lg = document.querySelector('.legend'), wrap = lg.parentElement, grab = $('#lg-grab'), rst = $('#lg-reset'), KEY = 'supercast.legend';
+  let pos = null, drag = null;
+  const floating = () => getComputedStyle(lg).position === 'absolute';
+  const fit = (x, y) => ({ x: Math.min(Math.max(4, wrap.clientWidth - lg.offsetWidth - 4), Math.max(4, x)), y: Math.min(Math.max(4, wrap.clientHeight - lg.offsetHeight - 4), Math.max(4, y)) });
+  const place = () => {
+    rst.hidden = !pos;
+    if (!pos) { lg.style.left = lg.style.top = ''; return; }
+    const p = fit(pos.x, pos.y); lg.style.left = p.x + 'px'; lg.style.top = p.y + 'px';
+  };
+  const save = () => { try { if (pos) localStorage.setItem(KEY, JSON.stringify(pos)); else localStorage.removeItem(KEY); } catch (err) {} };
+  const reset = () => { pos = null; place(); save(); };
+  try { const p = JSON.parse(localStorage.getItem(KEY)); if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) pos = { x: p.x, y: p.y }; } catch (err) {}
+  lg.addEventListener('pointerdown', e => {
+    if (e.button || !e.target.closest('.grab, .lh') || e.target.closest('button') || !floating()) return;
+    drag = { dx: e.clientX - lg.offsetLeft, dy: e.clientY - lg.offsetTop, x: e.clientX, y: e.clientY, on: false }; lg.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  lg.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (!drag.on) { if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 4) return; drag.on = true; lg.classList.add('moving'); }
+    pos = fit(e.clientX - drag.dx, e.clientY - drag.dy); place();
+  });
+  const end = () => { if (!drag) return; const moved = drag.on; drag = null; lg.classList.remove('moving'); if (moved) save(); };
+  lg.addEventListener('pointerup', end); lg.addEventListener('pointercancel', end);
+  grab.addEventListener('dblclick', reset); rst.addEventListener('click', reset);
+  grab.addEventListener('keydown', e => {
+    const d = { ArrowLeft: [-16, 0], ArrowRight: [16, 0], ArrowUp: [0, -16], ArrowDown: [0, 16] }[e.key];
+    if (!d || e.target !== grab || !floating()) return;
+    e.preventDefault(); pos = fit(lg.offsetLeft + d[0], lg.offsetTop + d[1]); place(); save();
+  });
+  new ResizeObserver(place).observe(wrap);
+  place();
+}
+
+// ---------- chart ----------
+const ch = $('#chart'), cg = ch.getContext('2d');
+let CW = 0, CH = 0; const PAD = { l: 34, r: 96, t: 8, b: 18 };
+const ro2 = new ResizeObserver(() => { CW = ch.clientWidth; CH = ch.clientHeight; ch.width = CW * dpr; ch.height = CH * dpr; }); ro2.observe(ch);
+const allv = series.flat().concat([D.market, D.a0]).filter(v => v != null);
+const Y0 = Math.floor((Math.min(...allv) - .03) * 10) / 10, Y1 = Math.ceil((Math.max(...allv) + .03) * 10) / 10;
+const X = s => PAD.l + (s / LAST) * (CW - PAD.l - PAD.r), Y = p => PAD.t + (1 - (p - Y0) / (Y1 - Y0)) * (CH - PAD.t - PAD.b);
+function drawChart() {
+  if (!CW) return; cg.setTransform(dpr, 0, 0, dpr, 0, 0); cg.clearRect(0, 0, CW, CH);
+  cg.font = `10px ${MONO}`; cg.textBaseline = 'middle';
+  for (let p = Y0; p <= Y1 + 1e-9; p += .1) { cg.strokeStyle = '#282c33'; cg.lineWidth = 1; cg.beginPath(); cg.moveTo(PAD.l, Y(p)); cg.lineTo(CW - PAD.r, Y(p)); cg.stroke(); cg.fillStyle = '#5d636c'; cg.textAlign = 'right'; cg.fillText(Math.round(p * 100) + '%', PAD.l - 6, Y(p)); }
+  cg.textAlign = 'center'; cg.textBaseline = 'alphabetic';
+  for (let s = 0; s <= LAST; s++) { cg.fillStyle = s === stepOf(t) ? '#e9e6df' : '#5d636c'; cg.fillText(s === 0 ? 'open' : s === LAST ? 'final' : s, X(s), CH - 4); }
+  cg.textAlign = 'left'; cg.textBaseline = 'middle';
+  const ref = (p, label, dash) => { cg.setLineDash(dash); cg.strokeStyle = '#9aa0a8'; cg.beginPath(); cg.moveTo(PAD.l, Y(p)); cg.lineTo(CW - PAD.r, Y(p)); cg.stroke(); cg.setLineDash([]); cg.fillStyle = '#9aa0a8'; cg.fillText(label, CW - PAD.r + 6, Y(p)); };
+  if (D.market != null) ref(D.market, 'market ' + pct(D.market), [5, 4]); if (D.a0 != null) ref(D.a0, '1 call ' + pct(D.a0), [1, 3]);
+  const upto = t >= END ? LAST : Math.min(LAST, Math.floor(t));
+  const line = (vals, color, w, dash, to, alpha) => { cg.globalAlpha = alpha; cg.strokeStyle = color; cg.lineWidth = w; cg.setLineDash(dash); cg.beginPath(); let pen = false; for (let s = 0; s <= to; s++) { if (vals[s] == null) continue; pen ? cg.lineTo(X(s), Y(vals[s])) : cg.moveTo(X(s), Y(vals[s])); pen = true; } cg.stroke(); cg.setLineDash([]); cg.globalAlpha = 1; };
+  series.forEach((v, i) => { const dimmed = sel && sel.a !== i; line(v, A[i].c, 1, A[i].challenger ? [4, 3] : [], LAST, dimmed ? .05 : .13); line(v, A[i].c, sel && sel.a === i ? 2.2 : 1.2, A[i].challenger ? [4, 3] : [], upto, dimmed ? .2 : .9); });
+  line(meanAt, '#ffffff', 2.2, [], upto, 1);
+  if (meanAt[upto] != null) { cg.fillStyle = '#fff'; cg.beginPath(); cg.arc(X(upto), Y(meanAt[upto]), 3, 0, 7); cg.fill(); }
+  const px = X(Math.min(LAST, t >= END ? LAST : t)); cg.strokeStyle = 'rgba(157,140,245,.8)'; cg.lineWidth = 1; cg.beginPath(); cg.moveTo(px, PAD.t); cg.lineTo(px, CH - PAD.b); cg.stroke();
+}
+ch.addEventListener('click', e => { const b = ch.getBoundingClientRect(), s = Math.max(0, Math.min(LAST, Math.round(((e.clientX - b.left - PAD.l) / (CW - PAD.l - PAD.r)) * LAST))); t = s + .95; setPlaying(false); });
+
+// ---------- loop ----------
+let prev = performance.now(); const txt = {};
+const setText = (id, v) => { if (txt[id] !== v) { txt[id] = v; const el = document.getElementById(id); if (el) el.textContent = v; } };
+function frame(now) {
+  if (!alive) return;
+  const dt = Math.min(.1, (now - prev) / 1000); prev = now;
+  if (playing) { t += dt / STEP_SEC * speed; if (t >= END) { t = END; setPlaying(false); } }
+  yaw = .5 + (t / END) * Math.PI * 2 + userYaw;                 // one full turn over the run
+  const s = stepOf(t); if (s !== shownStep) { shownStep = s; $('#stepname').textContent = STEP_TEXT(s)[0]; }
+  syncTerm();
+  const now_ = A.map((_, i) => probAt(i, t));
+  now_.forEach((p, i) => {
+    const v = pct(p), L = likesOf(i, t);
+    if (txt['lv' + i] !== v) { txt['lv' + i] = v; document.getElementById('lv' + i).textContent = v; hubPill[i].children[0].textContent = v; }
+    if (txt['ll' + i] !== L) { txt['ll' + i] = L; document.getElementById('ll' + i).textContent = '♥' + L; hubPill[i].children[1].textContent = L ? '♥' + L : ''; }
+  });
+  const nLikes = countAt(likeT, t);
+  setText('tc-posts', String(postN.reduce((c, n) => c + (n.at <= t ? 1 : 0), 0))); setText('tc-replies', String(countAt(ansT, t))); setText('tc-likes', String(nLikes));
+  const pn = pool(now_), pk = pn == null ? '' : pn.toFixed(3); setText('f-now', pct(pn, 1));
+  if (txt.pk !== pk) { txt.pk = pk; const m = document.getElementById('f-nowmark'), e = document.getElementById('f-now'); if (m) { m.hidden = pn == null; if (pn != null) m.style.left = pos(pn); } if (e) e.style.color = bcol(pn); }
+  const spread = sd(now_); setText('f-sd', spread == null ? '–' : (spread * 100).toFixed(1) + ' pts');
+  setText('where', s === 0 ? 'opening' : s === LAST ? 'final forecasts' : `round ${s} of ${R}`);
+  if (document.activeElement !== $('#scrub') || playing) $('#scrub').value = t;
+  draw(); drawChart();
+  setText('readout', `yaw ${(((yaw * 180 / Math.PI) % 360 + 360) % 360).toFixed(1)}° · links ${visLinks} · likes ${nLikes}`);
+  requestAnimationFrame(frame);
+}
+setPlaying(playing); requestAnimationFrame(frame);
+window.replay = { get t() { return t; }, set t(v) { t = v; }, setPlaying };       // for poking at it from the console
+return () => { alive = false; ac.abort(); ro1.disconnect(); ro2.disconnect(); if (dlg.open) dlg.close(); };
+}
+
+window.supercast = { live, paintLive, derive };            // for poking at it from the console
+route(location.hash.slice(1));
+connect().catch(() => { live.state = 'failed'; paintLive(); });
+</script>
+</body>
+</html>
