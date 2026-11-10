@@ -23,7 +23,7 @@
     --bg: #0b0e15; --panel: #151a25; --panel-2: #1f2634; --line: #343d4f; --term: #080b12; --glow: #1b2540;
     --ink: #ecebe6; --text2: #c5cad3; --dim: #a9b1bf; --faint: #7a8496;
     --yes: #45dfbe; --no: #ff6d5b; --core: #9d8cf5; --like: #ff5c8a;
-    --space: radial-gradient(1.5px 1.5px at 23px 31px, rgba(255,255,255,.75), transparent 60%) 0 0 / 190px 170px, radial-gradient(1.2px 1.2px at 111px 87px, rgba(200,215,255,.65), transparent 60%) 0 0 / 230px 210px, radial-gradient(1.8px 1.8px at 67px 139px, rgba(255,255,255,.45), transparent 60%) 0 0 / 310px 270px, radial-gradient(circle at 20% 16%, rgba(78, 120, 208, .5) 0, transparent 42%), radial-gradient(circle at 84% 80%, rgba(120, 90, 206, .4) 0, transparent 46%), radial-gradient(circle at 62% 42%, rgba(46, 140, 178, .26) 0, transparent 38%), radial-gradient(circle at 50% 50%, #1c2a48 0, #121b30 62%, #0b111f 100%);
+    --space: radial-gradient(1.5px 1.5px at 23px 31px, rgba(255,255,255,.75), transparent 60%) 0 0 / 190px 170px, radial-gradient(1.2px 1.2px at 111px 87px, rgba(200,215,255,.65), transparent 60%) 0 0 / 230px 210px, radial-gradient(1.8px 1.8px at 67px 139px, rgba(255,255,255,.45), transparent 60%) 0 0 / 310px 270px, radial-gradient(circle at 20% 16%, rgba(58, 96, 190, .26) 0, transparent 42%), radial-gradient(circle at 84% 80%, rgba(98, 70, 186, .2) 0, transparent 46%), radial-gradient(circle at 62% 42%, rgba(36, 118, 160, .12) 0, transparent 38%), radial-gradient(circle at 50% 50%, #0d1529 0, #070c19 60%, #03050b 100%);
     --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
@@ -715,7 +715,7 @@ function mountAdmin() {
       <section class="card a-sub"><header>${head('Awaiting approval', 'What people submitted. Approve one to queue it, or decline it.')}</header>
         <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Submitted, UTC</th>${th('Requests', 'How many people asked for this.', 'n')}<th></th></tr></thead><tbody id="a-sub"></tbody></table></div></section>
       <div class="cols">
-        <section class="card a-que"><header>${head('Queue', 'Approved markets and questions, oldest first. The engine does not read this list: run them from the swarmz CLI.')}</header>
+        <section class="card a-que"><header>${head('Queue', 'Approved markets and questions, oldest first. The oldest Kalshi market is run every two hours. An own question waits for a brief written by hand.')}</header>
           ${formHtml('queue', 'qf', 'Add', 'Queue a market or a question directly, without a submission.', 'Add to queue')}
           <div class="scroll"><table><thead><tr><th>Market or question</th>${th('Type', TIP.type)}<th>Approved, UTC</th>${th('Runs, UTC', TIP.slot)}<th></th></tr></thead><tbody id="a-que"></tbody></table></div></section>
         <section class="card a-rej"><header>${head('Declined', 'Submissions you declined. Undo puts one back for a fresh decision.')}</header>
@@ -1097,15 +1097,29 @@ const stage = $('#stage'), cv = $('#cv'), g = cv.getContext('2d');
 let W = 0, H = 0, dpr = 1;
 function fit() { dpr = Math.min(2, devicePixelRatio || 1); W = stage.clientWidth; H = stage.clientHeight; cv.width = W * dpr; cv.height = H * dpr; }
 const ro1 = new ResizeObserver(fit); ro1.observe(stage); fit();
-let yaw = 0, visLinks = 0;
+let yaw = 0, visLinks = 0, at3 = null;
 function project() {
   const wide = innerWidth > 880, cx = W / 2 + (wide ? Math.min(100, W * .1) : 0), cy = H / 2 + 6;
   const zoom = Math.min((W - (wide ? 236 : 0)) / 700, H / 600), F = 950;
   const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
-  for (const n of nodes) {
-    const x = n.x * cyw + n.z * syw, z = -n.x * syw + n.z * cyw, y2 = n.y * cp - z * sp, z2 = n.y * sp + z * cp, s = F / (F + z2) * zoom;
-    n.sx = cx + x * s; n.sy = cy + y2 * s; n.s = s; n.d = z2; n.fog = Math.max(.3, Math.min(1, 1.02 - (z2 + 330) / 1000));
-  }
+  at3 = (x0, y0, z0) => { const x = x0 * cyw + z0 * syw, z = -x0 * syw + z0 * cyw, y2 = y0 * cp - z * sp, z2 = y0 * sp + z * cp, s = F / (F + z2) * zoom; return [cx + x * s, cy + y2 * s, s, z2]; };
+  for (const n of nodes) { const [sx, sy, s, z2] = at3(n.x, n.y, n.z); n.sx = sx; n.sy = sy; n.s = s; n.d = z2; n.fog = Math.max(.3, Math.min(1, 1.02 - (z2 + 330) / 1000)); }
+}
+// A dot drawn as a lit ball: bright where the light lands, up and to the left, dark at the far edge.
+function ball(x, y, r, c, al) {
+  g.beginPath(); g.arc(x, y, r, 0, 7);
+  if (r < 1.7) { g.fillStyle = rgba(c, al); g.fill(); return; }
+  const gr = g.createRadialGradient(x - r * .36, y - r * .42, r * .05, x, y, r);
+  gr.addColorStop(0, rgba(c.map(v => Math.round(v + (255 - v) * .78)), al)); gr.addColorStop(.4, rgba(c, al)); gr.addColorStop(1, rgba(c.map(v => Math.round(v * .26)), al));
+  g.fillStyle = gr; g.fill();
+}
+// Replies and likes travel on an arc that bows away from the middle of the graph. Where it is after a share u of the way:
+const onArc = (f, u) => { const v = 1 - u; return [v * v * f[0] + 2 * u * v * f[2] + u * u * f[4], v * v * f[1] + 2 * u * v * f[3] + u * u * f[5]]; };
+function arcOf(l) {
+  const a = l.a, b = l.b, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, mz = (a.z + b.z) / 2, m = Math.hypot(mx, my, mz);
+  const lift = Math.min(90, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * .26 + 14), k = m > 8 ? lift / m : 0;
+  const q = at3(mx + mx * k, my + (k ? my * k : -lift), mz + mz * k);
+  return [a.sx, a.sy, q[0], q[1], b.sx, b.sy];
 }
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const colOf = n => mode === 'belief' ? belief(n.kind === 'post' ? n.p.prob : n.kind === 'final' ? A[n.a].final : probAt(n.a, t)) : hexRgb(A[n.a].c);
@@ -1125,28 +1139,31 @@ function draw() {
     if (sel) al = on ? Math.min(1, al * 3.2) : al * .3;
     g.lineWidth = (like || l.kind === 'ans') ? 1 + fresh * 1.2 : 1;
     g.strokeStyle = fresh > 0 ? rgba(like ? LIKE : [255, 255, 255], Math.min(1, al + fresh * .8)) : rgba(c, al);
-    g.beginPath(); g.moveTo(l.a.sx, l.a.sy); g.lineTo(l.b.sx, l.b.sy); g.stroke();
-    if (fresh > 0 && (like || l.kind === 'ans')) { const u = Math.min(1, born / (FRESH[l.kind] * .55)); flying.push([l.a.sx + (l.b.sx - l.a.sx) * u, l.a.sy + (l.b.sy - l.a.sy) * u, like, l.b.s]); }
+    g.beginPath(); g.moveTo(l.a.sx, l.a.sy);
+    if (!like && l.kind !== 'ans') { g.lineTo(l.b.sx, l.b.sy); g.stroke(); continue; }
+    const f = arcOf(l), lin = l.at < 0 ? 1 : Math.min(1, born / (FRESH[l.kind] * .75)), u = lin * lin * (3 - 2 * lin), end = onArc(f, u);
+    g.quadraticCurveTo(f[0] + (f[2] - f[0]) * u, f[1] + (f[3] - f[1]) * u, end[0], end[1]); g.stroke();   // the arc so far
+    if (fresh > 0) flying.push([f, u, like, l.b.s]);
   }
   const order = [...nodes].sort((a, b) => b.d - a.d);
   for (const n of order) {
     const born = n.at < 0 ? 9 : t - n.at, live = born >= 0, dim = sel && !hot(n) && n.kind !== 'q' ? .35 : 1;
     if (n.kind === 'q') {
       g.fillStyle = 'rgba(157,140,245,.18)'; g.beginPath(); g.arc(n.sx, n.sy, n.r * n.s * 1.7, 0, 7); g.fill();
-      g.fillStyle = '#9d8cf5'; g.beginPath(); g.arc(n.sx, n.sy, n.r * n.s, 0, 7); g.fill();
+      ball(n.sx, n.sy, n.r * n.s, [157, 140, 245], 1);
       g.fillStyle = '#0c1322'; g.font = `700 ${Math.round(13 * n.s)}px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('Q', n.sx, n.sy + 1);
       continue;
     }
-    if (n.kind === 'lens') { g.fillStyle = `rgba(170,175,185,${.55 * n.fog})`; g.beginPath(); g.arc(n.sx, n.sy, n.r * n.s, 0, 7); g.fill(); continue; }
+    if (n.kind === 'lens') { ball(n.sx, n.sy, n.r * n.s, [170, 175, 185], .7 * n.fog); continue; }
     if (!live) { g.fillStyle = `rgba(140,146,156,${.13 * n.fog})`; g.beginPath(); g.arc(n.sx, n.sy, 2.2 * n.s, 0, 7); g.fill(); continue; }
     const c = colOf(n), fresh = n.at < 0 ? 0 : Math.max(0, 1 - born / .3), pop = Math.min(1, born / .03), al = n.fog * dim;
     const r = (n.kind === 'post' ? n.r + Math.min(3, countAt(n.replyAt, t)) * .9 : n.r) * n.s * pop;
     if (fresh > 0) { g.fillStyle = `rgba(255,255,255,${.22 * fresh})`; g.beginPath(); g.arc(n.sx, n.sy, r + 9 * fresh, 0, 7); g.fill(); }
     if (n.kind === 'final') {
       g.strokeStyle = rgba(c, al); g.lineWidth = 1.6; g.beginPath(); g.arc(n.sx, n.sy, r, 0, 7); g.stroke();
-      g.fillStyle = rgba(c, al); g.beginPath(); g.arc(n.sx, n.sy, r * .42, 0, 7); g.fill();
+      ball(n.sx, n.sy, r * .46, c, al);
     } else {
-      g.fillStyle = fresh > .5 ? `rgba(255,255,255,${al})` : rgba(c, al * (n.kind === 'hub' ? 1 : .92)); g.beginPath(); g.arc(n.sx, n.sy, r, 0, 7); g.fill();
+      ball(n.sx, n.sy, r, fresh > .5 ? [236, 240, 250] : c, al * (n.kind === 'hub' ? 1 : .94));
       if (n.kind === 'hub') { g.strokeStyle = rgba(c, .45 * al); g.lineWidth = 1; if (A[n.a].challenger) g.setLineDash([3, 3]); g.beginPath(); g.arc(n.sx, n.sy, r + 4, 0, 7); g.stroke(); g.setLineDash([]); }
     }
     if (n.kind === 'post' && n.likeAt.length) {            // likes this post has by now: a pink ring, and the count
@@ -1159,9 +1176,11 @@ function draw() {
     }
     if (sel && sel.node === n && n.kind !== 'hub') { g.strokeStyle = '#fff'; g.lineWidth = 1.4; g.beginPath(); g.arc(n.sx, n.sy, r + 4, 0, 7); g.stroke(); }
   }
-  for (const [x, y, like, s] of flying) {                  // a reply or a like on its way to the post it is about
+  for (const [f, u, like, s] of flying) {                  // a reply or a like on its way to the post it is about, with a short tail behind it
+    const [x, y] = onArc(f, u);
+    if (u < 1) for (let k = 6; k >= 1; k--) { const v = u - k * .035; if (v <= 0) continue; const [tx, ty] = onArc(f, v); g.fillStyle = rgba(like ? LIKE : [255, 255, 255], .5 * (1 - k / 7)); g.beginPath(); g.arc(tx, ty, 2.4 * (1 - k / 8), 0, 7); g.fill(); }
     if (like) { g.fillStyle = rgba(LIKE, 1); g.font = `700 ${Math.round(13 * Math.max(.8, s))}px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('♥', x, y); }
-    else { g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 2.6, 0, 7); g.fill(); }
+    else { g.fillStyle = 'rgba(255,255,255,.2)'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); ball(x, y, 3, [236, 240, 250], 1); }
   }
   hubs.forEach((h, i) => { const b = hubPill[i]; b.style.transform = `translate(${h.sx.toFixed(1)}px,${(h.sy - 13 * h.s).toFixed(1)}px) translate(-50%,-100%)`; b.style.opacity = (sel && sel.a !== i ? .45 : 1) * Math.min(1, h.fog + .15); b.style.zIndex = 1000 - Math.round(h.d); });
   LENS.forEach((l, i) => { const n = lensN[l]; lensTag[i].style.transform = `translate(${(n.sx + 8).toFixed(1)}px,${(n.sy - 7).toFixed(1)}px)`; lensTag[i].style.opacity = n.fog * .9; });

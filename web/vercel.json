@@ -3,6 +3,7 @@
   "framework": null,
   "buildCommand": "node build.mjs",
   "outputDirectory": "public",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
   "trailingSlash": false,
   "regions": ["iad1"],
   "functions": { "api/*.js": { "maxDuration": 15 } },

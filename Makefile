@@ -1,10 +1,4 @@
-.PHONY: up down health test test-all backup clean-graphs watch unwatch watch-status
-
-up:
-	docker compose up -d
-
-down:
-	docker compose down
+.PHONY: health test test-all backup watch unwatch watch-status queue-on queue-off queue-status
 
 health:
 	uv run swarmz health
@@ -12,22 +6,15 @@ health:
 test:
 	uv run pytest -q
 
-test-all:  ## includes integration tests (live API keys / FalkorDB)
+test-all:  ## includes integration tests (live API keys)
 	uv run pytest -q -m ""
 
-# Copies the DuckDB registry (the critical file) and a FalkorDB snapshot into backups/<date>/.
+# Copies the DuckDB registry (the critical file) into backups/<date>/.
 backup:
 	@d=backups/$$(date +%Y%m%d-%H%M%S); mkdir -p $$d; \
 	db=$${SWARMZ_DB_PATH:-data/swarmz.duckdb}; \
 	uv run python -c "import duckdb,sys; duckdb.connect(sys.argv[1]).execute('CHECKPOINT')" $$db && cp $$db $$d/; \
-	if docker compose ps -q falkordb >/dev/null 2>&1 && [ -n "$$(docker compose ps -q falkordb)" ]; then \
-	  docker compose exec -T falkordb redis-cli SAVE >/dev/null && \
-	  docker compose cp falkordb:/var/lib/falkordb/data/dump.rdb $$d/falkordb-dump.rdb; \
-	elif [ -d data/falkordb_lite ]; then cp -R data/falkordb_lite $$d/; fi; \
 	echo "backup written to $$d"
-
-clean-graphs:
-	uv run swarmz graphs cleanup --yes
 
 # Auto-resolve: poll Kalshi every 10 min, score and learn as markets settle. Runs detached
 # (survives closing the terminal, not a reboot). Log: logs/resolve-watch.log
@@ -44,3 +31,21 @@ unwatch:
 watch-status:
 	@if [ -f data/resolve-watch.pid ] && kill -0 $$(cat data/resolve-watch.pid) 2>/dev/null; then echo "running (pid $$(cat data/resolve-watch.pid))"; else echo "not running"; fi
 	@tail -5 logs/resolve-watch.log 2>/dev/null || true
+
+# Supercast queue: every two hours (even UTC hours) run the oldest queued Kalshi market, then push the site data.
+# Each run costs money. Log: logs/queue.log
+queue-on:
+	@mkdir -p logs ~/Library/LaunchAgents
+	@cp scripts/com.swarmz.queue.plist ~/Library/LaunchAgents/com.swarmz.queue.plist
+	@launchctl bootout gui/$$(id -u)/com.swarmz.queue 2>/dev/null || true
+	@launchctl enable gui/$$(id -u)/com.swarmz.queue
+	@launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.swarmz.queue.plist && echo "queue schedule on"
+
+# Stops the schedule now and keeps it off after a restart. The plist stays in ~/Library/LaunchAgents.
+queue-off:
+	@launchctl bootout gui/$$(id -u)/com.swarmz.queue 2>/dev/null && echo "queue schedule off" || echo "not loaded"
+	@launchctl disable gui/$$(id -u)/com.swarmz.queue
+
+queue-status:
+	@launchctl print gui/$$(id -u)/com.swarmz.queue 2>/dev/null | grep -E "state =|last exit code|runs =" || echo "not loaded"
+	@tail -8 logs/queue.log 2>/dev/null || true
