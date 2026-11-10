@@ -8,6 +8,7 @@ export async function GET() {
     const rows = await db()`select value from site_data where key = 'live'`;
     let doc = { active: false };
     try { if (rows[0]) doc = JSON.parse(rows[0].value); } catch (e) {}
-    return json(doc, 200, { 'cache-control': 'public, max-age=0, s-maxage=2, stale-while-revalidate=4' });
+    // with no run on, pages only ask now and then, and the answer can be shared for longer
+    return json(doc, 200, { 'cache-control': doc.active ? 'public, max-age=0, s-maxage=2, stale-while-revalidate=4' : 'public, max-age=0, s-maxage=8, stale-while-revalidate=8' });
   } catch (e) { console.error(e); return fail('server', 500); }
 }

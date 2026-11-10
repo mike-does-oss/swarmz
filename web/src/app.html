@@ -629,7 +629,7 @@ async function submitForm(f) {
 }
 const withdraw = id => { const e = derive().mine.find(i => i.id === id); if (e) write({ action: 'withdraw', id }, Cap(e) + ' withdrawn.'); };
 const decide = (e, status) => { if (e) write({ action: status === 'queued' ? 'approve' : 'decline', id: e.id }, Cap(e) + (status === 'queued' ? ' queued.' : ' declined.')); };
-const runNow = id => { if (!okTicker(id)) return; write({ action: 'run', id }, id + ' is starting. It shows as running in a few seconds.').then(ok => { if (ok) for (const ms of [5000, 15000]) setTimeout(connect, ms); }); };
+const runNow = id => { if (!okTicker(id)) return; write({ action: 'run', id }, id + ' is starting. It shows as running in a few seconds.').then(ok => { if (!ok) return; try { localStorage.setItem('sc_run_started', String(Date.now())); } catch (e) {} for (const ms of [5000, 15000]) setTimeout(connect, ms); }); };
 const retry = id => { if (okId(id)) write({ action: 'retry', id }, (okTicker(id) ? id : 'Question') + ' queued again.'); };
 const undecide = id => { if (okId(id)) write({ action: 'remove', id }, (okTicker(id) ? id : 'Question') + ' removed.'); };
 async function queueForm(f) {
@@ -844,8 +844,10 @@ function resolve(name) {
   if (VIEWS[name]) return name;
   if (name === 'run-live' && watch.doc && watch.doc.ticker) return name;
   if (name && name !== 'run-live' && name.startsWith('run-') && RUNS[name.slice(4)]) return name;
-  return watch.doc && watch.doc.active ? 'run-live' : lastRun ? 'run-' + lastRun : 'overview';
+  return liveShown() ? 'run-live' : lastRun ? 'run-' + lastRun : 'overview';
 }
+// A run in progress is the default thing to show, and so is one that has just ended, until the site has been rebuilt with it.
+const liveShown = () => !!(watch.doc && watch.doc.ticker && (watch.doc.active || (watch.doc.run && watch.doc.stage === 'done' && !FINISHED.has(watch.doc.ticker))));
 function route(name, again) {                              // again: the same view, redrawn because the live run moved on
   name = resolve(name);
   const isLive = name === 'run-live', isRun = name.startsWith('run-');
@@ -887,14 +889,26 @@ async function pollLive() {
     }
   }
   const on = !!(watch.doc && watch.doc.active);
-  if (on || Date.now() < watch.until) watch.timer = setTimeout(pollLive, 4000);
+  if (on || Date.now() < watch.until) watch.timer = setTimeout(pollLive, on ? 4000 : 10000);   // every 4 s during a run, every 10 s while looking out for one
   if (was && !on) { watch.until = 0; connect(); }                      // it finished: read the queue again
 }
+// A run can start at any moment (the admin view's Run now), so a page someone is looking at keeps an eye out:
+// it asks every 10 seconds for ten minutes after it was opened, brought to the front or clicked, then stops,
+// so a tab left open does not keep the database awake.
+function lookOut(ms) {
+  if (ADMIN) return;
+  const idle = !(watch.doc && watch.doc.active) && Date.now() >= watch.until;
+  watch.until = Math.max(watch.until, Date.now() + (ms || 10 * 60e3));
+  if (idle) pollLive();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lookOut(); });
+document.addEventListener('pointerdown', () => { if (watch.until - Date.now() < 5 * 60e3) lookOut(); });
+addEventListener('storage', e => { if (e.key === 'sc_run_started') lookOut(); });       // another tab pressed Run now
 // Start watching when the queue says a market is running, and look again when the next slot comes round.
 function watchRuns() {
   if (ADMIN) return;
   const q = (live.rows && Array.isArray(live.rows.queued)) ? live.rows.queued : [];
-  if (q.some(x => x && x.running) && !(watch.doc && watch.doc.active)) { watch.until = Date.now() + 8 * 60e3; pollLive(); }
+  if (q.some(x => x && x.running) && !(watch.doc && watch.doc.active)) lookOut();
   clearTimeout(watch.slot);
   if (q.length) watch.slot = setTimeout(connect, Math.ceil(Date.now() / EVERY) * EVERY - Date.now() + 20e3);
 }
@@ -1431,6 +1445,7 @@ return () => { alive = false; ac.abort(); ro1.disconnect(); ro2.disconnect(); if
 
 window.supercast = { live, paintLive, derive, watch };            // for poking at it from the console
 route(location.hash.slice(1));
+lookOut();
 connect().catch(() => { live.state = 'failed'; paintLive(); });
 </script>
 </body>
