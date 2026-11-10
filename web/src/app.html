@@ -375,7 +375,8 @@
   .withbtn { display: flex; gap: 8px; } .withbtn input { flex: 1; min-width: 0; } .withbtn .btn { flex: none; }
   dialog.mk { width: min(980px, calc(100% - 24px)); } .mkbar { flex: none; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
   .mkbar input { flex: 1; min-width: 180px; font: inherit; color: var(--ink); background: var(--term); border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; } .mkbar input:focus-visible { outline: 2px solid var(--core); outline-offset: 1px; }
-  .seg button[aria-pressed="true"] { color: var(--ink); background: var(--panel-2); } dialog.mk .mbody { padding: 0; } dialog.mk .qc { max-width: 520px; }
+  .seg button[aria-pressed="true"] { color: var(--ink); background: var(--panel-2); } dialog.mk { height: min(760px, calc(100% - 24px)); } dialog.mk .mbody { padding: 0; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: block; } dialog.mk .scroll { overflow-x: auto; } dialog.mk tr.go { cursor: pointer; } dialog.mk tr.used td { opacity: .5; }
+  @media (max-width: 640px) { dialog.mk th:nth-child(n+4), dialog.mk td:nth-child(n+4) { display: none; } dialog.mk .qc { min-width: 0; } dialog.mk > header h2 small::after { content: " Tap a row to use it."; } } dialog.mk .qc { max-width: 520px; }
   .waitbody { padding: 18px 14px 20px; display: flex; flex-direction: column; gap: 10px; } .waitbody p { margin: 0; } .waitbody .wq { font-size: 18px; font-weight: 700; line-height: 1.3; max-width: 60ch; text-wrap: balance; } .waitbody .state { margin-right: 10px; }
   .state.bad { --sc: var(--no); } .ov td.why small { display: block; margin-top: 4px; color: var(--dim); max-width: 46ch; overflow-wrap: anywhere; white-space: normal; }
   .admbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
@@ -790,7 +791,7 @@ function paintMarkets() {
   const rows = Array.isArray(got) ? got.filter(m => words.every(w => (m.title + ' ' + m.ticker).toLowerCase().includes(w))) : [];
   $('#mk-rows').innerHTML = got === 'loading' ? emptyRow(5, 'Loading from Kalshi') : got === 'failed' ? emptyRow(5, 'Could not load from Kalshi. Close this and try again.')
     : rows.map(m => { const state = FINISHED.has(m.ticker) ? 'finished' : taken.has(m.ticker) ? 'in the list' : '';
-      return `<tr><td class="qc">${esc(m.title)}<small><span class="qid first">${esc(m.ticker)}</span></small></td><td class="n">${span(m.hours)}</td><td class="n">${m.price}%</td><td class="n">${m.volume.toLocaleString('en-US')}</td>
+      return `<tr${state ? ' class="used"' : ` class="go" data-pick="${esc(m.ticker)}"`}><td class="qc">${esc(m.title)}<small><span class="qid first">${esc(m.ticker)}</span></small></td><td class="n">${span(m.hours)}</td><td class="n">${m.price}%</td><td class="n">${m.volume.toLocaleString('en-US')}</td>
         <td class="act">${state ? `<span class="dimc">${state}</span>` : `<button class="btn" data-pick="${esc(m.ticker)}">Use</button>`}</td></tr>`; }).join('') || emptyRow(5, 'No markets match');
   $('#mk-note').hidden = !(Array.isArray(got) && mk.more && mk.more[mk.span]);
 }

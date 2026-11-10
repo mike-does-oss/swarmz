@@ -489,5 +489,27 @@ def cloud_tick(dry_run: bool = typer.Option(False, help="Say what would run, and
     console.print(cloud.tick(run=not dry_run, log=console.print))
 
 
+@cloud_app.command("run-now")
+def cloud_run_now(n: int = typer.Argument(1, help="How many queued markets to run, one after another"),
+                  url: str = typer.Option("https://swarmz-engine.vercel.app", help="The engine's address")):
+    """Ask the cloud to run queued markets now, without waiting for the two-hourly slot. Each one costs money."""
+    import requests
+    secret = os.environ.get("CRON_SECRET")
+    if not secret:
+        raise typer.BadParameter("CRON_SECRET is not set (it is in .env on the machine that set the engine up)")
+    for i in range(n):
+        console.print(f"[bold]pass {i + 1} of {n}[/] ...")
+        r = requests.get(f"{url.rstrip('/')}/api/tick", headers={"authorization": f"Bearer {secret}"}, timeout=850)
+        try:
+            out = r.json()
+        except ValueError:
+            out = {"error": f"status {r.status_code}", "log": [r.text[:300]]}
+        for line in out.get("log", []):
+            console.print(f"  {line}")
+        if out.get("error") or out.get("skipped") or not (out.get("ran") or out.get("failed")):
+            console.print(f"  stopped: {out.get('error') or out.get('skipped') or 'nothing was run'}")
+            break
+
+
 if __name__ == "__main__":
     app()
