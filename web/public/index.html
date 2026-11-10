@@ -906,7 +906,7 @@ const likesOf = (i, tt) => postOf[i].reduce((s, n) => s + (n ? countAt(n.likeAt,
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let t = still ? END : 0, playing = !still, speed = 1, mode = 'agent', sel = null, shownStep = -1, shownEnd = null;
 $('#stageq').textContent = D.question;
-{ const fin = D.aggregates.equal, ref = D.market != null ? 'market at freeze ' + P(D.market) : 'single call ' + P(D.a0);
+{ const fin = D.aggregates.equal, ref = D.market != null ? 'market probability at ' + P(D.market) : 'single call ' + P(D.a0);
   $('#sf-p').textContent = P(fin); $('#sf-p').style.color = tint(fin);
   $('#sf-sub').textContent = ref + (D.outcome == null ? '' : ', resolved ' + (D.outcome ? 'YES' : 'NO')); }
 let userYaw = 0, pitch = -0.3;
@@ -1149,6 +1149,7 @@ function project() {
 }
 // A dot drawn as a matte ball: a little lighter up and to the left, darker at the far edge, and no bright spot.
 function ball(x, y, r, c, al) {
+  al *= .68;                                               // see-through, so the links behind a dot still show
   g.beginPath(); g.arc(x, y, r, 0, 7);
   if (r < 1.7) { g.fillStyle = rgba(c, al); g.fill(); return; }
   const gr = g.createRadialGradient(x - r * .3, y - r * .34, r * .1, x, y, r * 1.05);
