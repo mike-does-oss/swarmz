@@ -79,7 +79,14 @@
   .legend .scale span.g { flex: 1; height: 5px; border-radius: 3px; background: linear-gradient(90deg, var(--no), var(--ink), var(--yes)); }
   .legend .hint { padding: 7px 6px 0; color: var(--faint); font-size: 10px; }
 
-  .stepname { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: var(--text2); pointer-events: none; white-space: nowrap; }
+  .stagetop { position: absolute; left: calc(50% + min(100px, 10%)); top: 12px; transform: translateX(-50%); width: min(560px, 56%); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; pointer-events: none; z-index: 3000; }
+  .stageq { font-weight: 700; font-size: 13.5px; line-height: 1.35; color: var(--ink); text-wrap: balance; text-shadow: 0 1px 8px #03050b, 0 0 2px #03050b; }
+  .stepname { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: var(--text2); white-space: nowrap; }
+  .stagefinal { position: absolute; left: calc(50% + min(100px, 10%)); bottom: 40px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 22px 11px; text-align: center; pointer-events: none; z-index: 3000;
+                background: rgba(6, 10, 20, .86); border: 1px solid #3a4763; border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
+  .stagefinal .lab { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .stagefinal b { font-size: 34px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .stagefinal small { font-size: 11px; color: var(--text2); white-space: nowrap; }
   .readout { position: absolute; right: 12px; bottom: 9px; color: var(--dim); font-size: 10px; letter-spacing: .04em; pointer-events: none; font-variant-numeric: tabular-nums; }
 
   .term { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--term); border: 1px solid var(--line); border-radius: 8px; }
@@ -145,7 +152,7 @@
     .stagewrap { display: flex; flex-direction: column; overflow: visible; background: none; border: 0; gap: 10px; }
     .stage { position: relative; inset: auto; height: 58vh; min-height: 340px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--space); border-color: #3a4763; }
     .legend { position: static; width: auto; }
-    .stepname { top: 10px; }
+    .stagetop, .stagefinal { left: 50%; } .stagetop { top: 10px; width: 88%; } .stagefinal { bottom: 34px; } .stagefinal b { font-size: 28px; }
     .readout { display: none; }
     .term { height: 70vh; }
     .bub { max-width: 170px; }
@@ -424,7 +431,8 @@
       <div class="stage" id="stage">
         <canvas id="cv" aria-label="3D graph of the panel's discussion"></canvas>
         <div id="pills"></div>
-        <div class="stepname" id="stepname"></div>
+        <div class="stagetop"><div class="stageq" id="stageq"></div><div class="stepname" id="stepname"></div></div>
+        <div class="stagefinal" id="stagefinal" hidden><span class="lab">Panel final</span><b id="sf-p"></b><small id="sf-sub"></small></div>
       </div>
       <aside class="legend" aria-label="Panel agents">
         <div class="grab" id="lg-grab" tabindex="0" role="group" aria-label="Move this panel" data-tip="Drag to move. Arrow keys move it too. Double-click to put it back."><i></i><button id="lg-reset" class="rst" hidden>Reset</button></div>
@@ -871,7 +879,11 @@ const likesOf = (i, tt) => postOf[i].reduce((s, n) => s + (n ? countAt(n.likeAt,
 
 // ---------- state ----------
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let t = still ? END : 0, playing = !still, speed = 1, mode = 'agent', sel = null, shownStep = -1;
+let t = still ? END : 0, playing = !still, speed = 1, mode = 'agent', sel = null, shownStep = -1, shownEnd = null;
+$('#stageq').textContent = D.question;
+{ const fin = D.aggregates.equal, ref = D.market != null ? 'market at freeze ' + P(D.market) : 'single call ' + P(D.a0);
+  $('#sf-p').textContent = P(fin); $('#sf-p').style.color = tint(fin);
+  $('#sf-sub').textContent = ref + (D.outcome == null ? '' : ', resolved ' + (D.outcome ? 'YES' : 'NO')); }
 let userYaw = 0, pitch = -0.3;
 const STEP_SEC = 9;
 const stepOf = tt => Math.max(0, Math.min(LAST, Math.floor(tt)));
@@ -1110,12 +1122,12 @@ function project() {
   at3 = (x0, y0, z0) => { const x = x0 * cyw + z0 * syw, z = -x0 * syw + z0 * cyw, y2 = y0 * cp - z * sp, z2 = y0 * sp + z * cp, s = F / (F + z2) * zoom; return [cx + x * s, cy + y2 * s, s, z2]; };
   for (const n of nodes) { const [sx, sy, s, z2] = at3(n.x, n.y, n.z); n.sx = sx; n.sy = sy; n.s = s; n.d = z2; n.fog = Math.max(.3, Math.min(1, 1.02 - (z2 + 330) / 1000)); }
 }
-// A dot drawn as a lit ball: bright where the light lands, up and to the left, dark at the far edge.
+// A dot drawn as a matte ball: a little lighter up and to the left, darker at the far edge, and no bright spot.
 function ball(x, y, r, c, al) {
   g.beginPath(); g.arc(x, y, r, 0, 7);
   if (r < 1.7) { g.fillStyle = rgba(c, al); g.fill(); return; }
-  const gr = g.createRadialGradient(x - r * .36, y - r * .42, r * .05, x, y, r);
-  gr.addColorStop(0, rgba(c.map(v => Math.round(v + (255 - v) * .78)), al)); gr.addColorStop(.4, rgba(c, al)); gr.addColorStop(1, rgba(c.map(v => Math.round(v * .26)), al));
+  const gr = g.createRadialGradient(x - r * .3, y - r * .34, r * .1, x, y, r * 1.05);
+  gr.addColorStop(0, rgba(c.map(v => Math.round(v + (255 - v) * .1)), al)); gr.addColorStop(.55, rgba(c.map(v => Math.round(v * .9)), al)); gr.addColorStop(1, rgba(c.map(v => Math.round(v * .52)), al));
   g.fillStyle = gr; g.fill();
 }
 // Replies and likes travel on an arc that bows away from the middle of the graph. Where it is after a share u of the way:
@@ -1282,6 +1294,7 @@ function frame(now) {
   if (playing) { t += dt / STEP_SEC * speed; if (t >= END) { t = END; setPlaying(false); } }
   yaw = .5 + (t / END) * Math.PI * 2 + userYaw;                 // one full turn over the run
   const s = stepOf(t); if (s !== shownStep) { shownStep = s; $('#stepname').textContent = STEP_TEXT(s)[0]; }
+  if ((t >= END) !== shownEnd) { shownEnd = t >= END; $('#stagefinal').hidden = !shownEnd; }   // where the panel ended, once the run has played out
   syncTerm();
   const now_ = A.map((_, i) => probAt(i, t));
   now_.forEach((p, i) => {
