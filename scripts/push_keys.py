@@ -5,6 +5,7 @@
 Reads ANTHROPIC_API_KEY from ./.env and the brief builder's settings from its old .env (default
 ~/Desktop/projects/shoals-new/.env). Each value goes to `vercel env add` on standard input for the
 project linked in this folder (swarmz-engine), marked sensitive; nothing is printed but the names.
+Then it redeploys that project, because a function only sees settings that existed when it was deployed.
 The builder's settings are also added to ./.env as BRIEF_<name>, where swarmz now looks for them.
 """
 
@@ -40,7 +41,9 @@ def main() -> int:
         print(f"added {len(add)} BRIEF_ settings to .env")
     if missing:
         print("no value found for: " + ", ".join(missing))
-    print("Redeploy for them to take effect: vercel deploy --prod")
+    print("redeploying so the new settings take effect ...")
+    done = subprocess.run(["vercel", "deploy", "--prod", "--yes"], cwd=ROOT, text=True, capture_output=True)
+    print("deployed" if done.returncode == 0 else f"deploy FAILED: {done.stderr.strip()[-300:]}")
     return 0
 
 
