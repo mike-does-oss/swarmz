@@ -10,8 +10,16 @@ export async function lookup(ticker) {
     if (r.status === 404) return { found: false };
     if (!r.ok) return { found: null };
     const m = (await r.json()).market || {};
-    const title = typeof m.title === 'string' ? m.title.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
-    return { found: true, title: title || null };
+    const clean = v => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+    let title = clean(m.title);
+    if (title && !title.endsWith('?') && m.event_ticker) {   // "Michigan St. wins" says little alone: add the event, "Michigan St. vs Duke"
+      try {
+        const ev = await fetch(`${BASE}/events/${encodeURIComponent(m.event_ticker)}`, { signal: AbortSignal.timeout(3000), headers: { accept: 'application/json' } });
+        const name = ev.ok ? clean(((await ev.json()).event || {}).title) : '';
+        if (name && name !== title) title = `${name}: ${title}`;
+      } catch (e) {}
+    }
+    return { found: true, title: title.slice(0, 200) || null };
   } catch (e) { return { found: null }; }
 }
 
