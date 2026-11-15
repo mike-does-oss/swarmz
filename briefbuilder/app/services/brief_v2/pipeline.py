@@ -64,7 +64,7 @@ class BriefPipeline:
         self, *, kalshi=None, search_client=None, fetch_article=None,
         decomposer_llm=None, triage_llm=None, assembler_llm=None, scrubber_llm=None,
         briefs_dir=None, db_path=None, count_per_query=5, dedup_threshold=0.8,
-        min_words=1500, max_words=3000, max_queries=18,
+        min_words=1500, max_words=3600, max_queries=18,
     ):
         self.kalshi = kalshi or KalshiClient()
         self.search_client = search_client or (ClaudeSearchClient() if Config.SEARCH_BACKEND == 'claude-code' else BraveSearchClient())
@@ -148,6 +148,8 @@ class BriefPipeline:
         if contamination:
             logger.error(f"residual odds contamination, refusing freeze: {contamination[:3]}")
             return self._reject('residual_odds_contamination', now)
+        # The writer is asked for at most 3,000 words and sometimes runs a little over. The ceiling here is
+        # higher so a slight overrun is kept rather than thrown away after it was paid for.
         word_count = len(cleaned.split())
         if not (self.min_words <= word_count <= self.max_words):
             return self._reject(f'word_count_out_of_range:{word_count}', now)

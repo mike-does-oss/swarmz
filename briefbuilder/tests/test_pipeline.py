@@ -211,3 +211,16 @@ def test_build_freezes_an_event_question_and_tells_the_writer_where_it_stands(tm
             assert "LATEST READING" not in p.assembler_llm.user
         else:
             assert "CURRENT STATE" not in p.assembler_llm.user and "LATEST READING" not in p.assembler_llm.user
+
+
+def test_a_slight_overrun_of_the_3000_word_target_is_kept(tmp_path):
+    # Two real briefs came back at 3,018 and 3,269 words and were thrown away after being paid for.
+    clean = " ".join(["The ministry stated the vote passed."] * 545)   # 3,270 words
+    p = BriefPipeline(
+        kalshi=FakeKalshi(), search_client=FakeSearch(), fetch_article=_fetch,
+        decomposer_llm=FakeDecomposerLLM(), triage_llm=FakeTriageLLM(),
+        assembler_llm=FakeAssemblerLLM(), scrubber_llm=FakeScrubberLLM(cleaned=clean),
+        briefs_dir=str(tmp_path / "briefs_v2"), db_path=str(tmp_path / "shoals.db"), min_words=1,
+    )
+    result = p.build(MARKET, now=NOW)
+    assert result.status == "frozen", result.reject_reason
