@@ -59,6 +59,8 @@ def panel_run(run):
                       "answers": said, "likes": e.get("likes", [])})
     return {"run_id": rid, "question_id": q["question_id"], "question": q["question_text"], "split": q["split"],
             "market": q["market_prob"], "outcome": q["outcome"], "brier": score[0]["brier"] if score else None,
+            # A run frozen after its market had settled forecast something already known. It is shown, not scored.
+            "late": bool(q["resolve_ts"] and q["freeze_ts"] and q["freeze_ts"] >= q["resolve_ts"]),
             "rounds": meta["rounds"], "silent": meta.get("silent"), "a0": a0.get(q["question_id"]),
             "aggregates": agg, "usage": usage, "has_likes": any("likes" in e for e in thread),
             "started": str(run["started_at"])[:19], "finished": str(run["finished_at"])[:19],
@@ -72,7 +74,7 @@ runs = [r for r in runs if r["has_likes"]]                # the final design kee
 latest = {r["question_id"]: r for r in reversed(runs)}
 
 # ---- scoring: mean Brier over finished runs whose question has resolved, beside the cheap answers on the same questions
-done = [r for r in latest.values() if r["brier"] is not None and r["outcome"] in (0, 1)]
+done = [r for r in latest.values() if r["brier"] is not None and r["outcome"] in (0, 1) and not r["late"]]
 
 
 def mean(xs):
@@ -97,7 +99,7 @@ for a in runs[0]["agents"] if runs else []:
             mine.append((r, me))
     moves = [abs(me["final"] - me["alone"]) for _, me in mine if me["final"] is not None and me["alone"] is not None]
     likes = sum(p["likes"].count(pid) for r, _ in mine for p in r["posts"])
-    ids = [r["run_id"] for r, _ in mine]
+    ids = [r["run_id"] for r, _ in mine if not r["late"]] or [""]
     sc = rows(f"select count(*) n, avg(brier) brier from scores where persona_id = ? and run_id in ({','.join('?' * len(ids))})", [pid] + ids)[0]
     agents.append({"id": pid, "name": a["name"], "method": a["method"], "runs": len(mine),
                    "challenger": sum(1 for _, me in mine if me["challenger"]),

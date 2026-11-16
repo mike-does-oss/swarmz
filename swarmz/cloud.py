@@ -282,6 +282,29 @@ def run_market(ticker: str, log=print, own: dict | None = None) -> str | None:
         return f"{type(e).__name__}: {str(e)[:300]}"
 
 
+def closed_reason(ticker: str, session=None, at=None) -> str | None:
+    """Why a Kalshi market can no longer be forecast, or None if it still can. A market that has closed has
+    its answer in the news, so a run on it is a paid forecast of something already known. Own questions
+    (ids starting ``q-``) have no market to ask. If Kalshi cannot be reached the run goes ahead."""
+    if ticker.startswith("q-"):
+        return None
+    import requests
+    from .scoring.resolve import KALSHI_API_BASE
+    from .timeutil import now, utc
+    try:
+        m = (session or requests).get(f"{KALSHI_API_BASE}/markets/{ticker}", timeout=20).json().get("market") or {}
+    except Exception:
+        return None
+    if m.get("result") in ("yes", "no"):
+        return f"the market had already settled ({m['result'].upper()}) before its run"
+    if m.get("status") in ("closed", "determined", "finalized", "settled"):
+        return "the market had already closed before its run"
+    close = m.get("close_time")
+    if close and utc(close) <= (utc(at) or now()):
+        return "the market had already closed before its run"
+    return None
+
+
 def next_queued(pg, done: set[str]) -> tuple[str | None, int]:
     """The oldest queued market or question, and how many more wait behind it. Marks rows the registry already finished."""
     rows = pg.execute("select id from queue where status = 'queued' order by at").fetchall()
@@ -328,6 +351,14 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
             ticker, waiting = (only, max(0, waiting)) if ok and only not in done else (None, 0)
         cap = int(os.environ.get("SWARMZ_QUEUE_MAX_PER_DAY", "12"))
         recent = pg.execute("select count(*) from queue where ran_at > now() - interval '24 hours'").fetchone()[0]
+        while run and ticker and recent < cap:      # a market that closed while it waited is set aside, at no cost
+            closed = closed_reason(ticker)
+            if not closed:
+                break
+            log(f"{ticker}: {closed}")
+            pg.execute("update queue set status = 'failed', note = %s where id = %s", [closed, ticker])
+            out.setdefault("closed", []).append(ticker)
+            ticker, waiting = (None, 0) if only else next_queued(pg, done)
         if not ticker:
             log("nothing queued")
         elif not run:

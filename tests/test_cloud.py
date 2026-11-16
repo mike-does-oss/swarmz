@@ -121,3 +121,30 @@ def test_an_own_question_is_registered_from_its_brief_with_no_market(tmp_path, m
     assert (q["question_text"], q["resolution_criteria"], q["source"], q["market_prob"]) == \
         ("Will it happen by spring?", "The ministry says so in writing.", "manual", None)
     assert store.read_brief(q) == b"a frozen brief about the question"
+
+
+class _Kalshi:
+    def __init__(self, market):
+        self.market = market
+
+    def get(self, url, timeout=None):
+        market = self.market
+        return type("R", (), {"json": lambda self: {"market": market}})()
+
+
+def test_a_market_that_has_closed_or_settled_is_not_run():
+    from datetime import datetime, timezone
+    at = datetime(2026, 11, 10, 22, 0, tzinfo=timezone.utc)
+    open_ = {"status": "active", "result": "", "close_time": "2026-11-11T03:00:00Z"}
+    assert cloud.closed_reason("KXA-26NOV10-B", _Kalshi(open_), at) is None
+    assert "settled (YES)" in cloud.closed_reason("KXA-26NOV10-B", _Kalshi({**open_, "status": "finalized", "result": "yes"}), at)
+    assert "closed" in cloud.closed_reason("KXA-26NOV10-B", _Kalshi({**open_, "status": "closed"}), at)
+    assert "closed" in cloud.closed_reason("KXA-26NOV10-B", _Kalshi({**open_, "close_time": "2026-11-10T18:01:27Z"}), at)
+
+
+def test_an_own_question_or_an_unreachable_kalshi_does_not_stop_a_run():
+    class Down:
+        def get(self, url, timeout=None):
+            raise OSError("no network")
+    assert cloud.closed_reason("q-0123456789abcd", Down()) is None
+    assert cloud.closed_reason("KXA-26NOV10-B", Down()) is None
