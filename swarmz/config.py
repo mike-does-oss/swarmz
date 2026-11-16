@@ -25,6 +25,8 @@ class Settings:
     population_size: int
     discussion_rounds: int = 5   # rounds the panel talks after the opening forecasts
     challengers: int = 2         # members per question told to argue against the leading view
+    threshold_note: bool = False # hand members the arithmetic on "number clears a line" questions (swarmz.threshold)
+    note_model: str = "claude-sonnet-5-5"
     learning: dict = field(default_factory=dict)
     training_cutoffs: dict = field(default_factory=dict)
 
@@ -47,6 +49,8 @@ def settings() -> Settings:
         population_size=int(os.environ.get("SWARMZ_POPULATION_SIZE", "10")),
         discussion_rounds=int(os.environ.get("SWARMZ_DISCUSSION_ROUNDS", "5")),
         challengers=int(os.environ.get("SWARMZ_CHALLENGERS", "2")),
+        threshold_note=os.environ.get("SWARMZ_THRESHOLD_NOTE", "").strip().lower() in ("1", "true", "yes", "on"),
+        note_model=os.environ.get("SWARMZ_NOTE_MODEL", "claude-sonnet-5-5"),
         learning=_yaml("learning.yaml"),
         training_cutoffs={k: str(v) for k, v in (_yaml("models.yaml").get("training_cutoffs") or {}).items()},
     )

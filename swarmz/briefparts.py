@@ -73,6 +73,19 @@ def _cut(body: str, max_chars: int) -> str:
     return kept.strip()
 
 
+def standing(brief_text: str) -> str:
+    """Where the thing the question resolves on stands now: the brief's own "Latest reading" line (first
+    under QUANTITATIVE ANCHORS) or "Current status" line (first under CONFIRMED FACTS). "" if it has neither.
+    Every member reads this whichever slice it holds, so nobody forecasts without the deciding number."""
+    by_title = dict(sections(brief_text))
+    out = []
+    for title, mark in (("QUANTITATIVE ANCHORS", "latest reading"), ("CONFIRMED FACTS", "current status")):
+        first = next((ln.strip() for ln in by_title.get(title, "").splitlines() if ln.strip()), "")
+        if mark in first.lower():
+            out.append(first)
+    return "\n".join(out)
+
+
 def brief_slice(brief_text: str, lenses: tuple[str, ...]) -> str:
     """The brief with only the common sections and the given lenses' sections, in the brief's own
     order. A text without the fixed headings comes back whole: there is nothing to split."""
@@ -81,4 +94,9 @@ def brief_slice(brief_text: str, lenses: tuple[str, ...]) -> str:
     known = {t for ts in LENSES.values() for t in ts}
     if not any(title in known for title, _ in parts):
         return brief_text
-    return "\n\n".join(f"## {title}\n\n{body}" for title, body in parts if title in wanted)
+    out = [f"## {title}\n\n{body}" for title, body in parts if title in wanted]
+    now = standing(brief_text)
+    if now:
+        at = sum(1 for title, _ in parts if title in COMMON and title in wanted)
+        out.insert(at, f"## WHERE THINGS STAND\n\n{now}")
+    return "\n\n".join(out)

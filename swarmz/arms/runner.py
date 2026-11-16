@@ -224,7 +224,13 @@ def _swarm(con, spec, q, question, brief, run_id, llm, swarm, seed, workers):
     if spec.diverse:
         from ..diversity import assign
         seats = assign(brief, [p["persona_id"] for p, _ in personas], q["question_id"], s.challengers)
-    read = {p["persona_id"]: seats[p["persona_id"]].brief if seats else brief for p, _ in personas}
+    note = ""
+    if s.threshold_note:   # off by default: see swarmz.threshold
+        from .. import threshold
+        from ..briefparts import brief_slice
+        numbers = threshold.extract(llm, model=s.note_model, question=question, brief=brief_slice(brief, ("numbers",)))
+        note = f"\n\n{threshold.note(numbers)}" if numbers else ""
+    read = {p["persona_id"]: (seats[p["persona_id"]].brief if seats else brief) + note for p, _ in personas}
     if spec.forecast_first:   # alone, on what each has read, before anyone speaks
         alone = _elicit_many(llm, [(p["persona_id"], prof, read[p["persona_id"]], "RESEARCH BRIEF")
                                    for p, prof in personas], question, workers)
@@ -235,7 +241,7 @@ def _swarm(con, spec, q, question, brief, run_id, llm, swarm, seed, workers):
             p["persona_id"], prof, p.get("display_name") or "", p.get("handle") or "",
             prior_prob=priors[p["persona_id"]].prob if priors else None,
             prior_rationale=priors[p["persona_id"]].rationale if priors else "",
-            reading=seats[p["persona_id"]].brief if seats else "",
+            reading=read[p["persona_id"]] if seats or note else "",
             role=CHALLENGER if seats and seats[p["persona_id"]].challenger else "")
             for p, prof in personas],
         max_rounds=s.discussion_rounds, seed=seed,
@@ -249,6 +255,8 @@ def _swarm(con, spec, q, question, brief, run_id, llm, swarm, seed, workers):
     result = swarm(req)
     # keep the thread and who read what with the run: for debugging, and for the app to replay
     extra = {"swarm_meta": result.meta}
+    if note:
+        extra["threshold_note"] = note.strip()
     if seats:
         extra["seats"] = {pid: {"lenses": list(st.lenses), "challenger": st.challenger} for pid, st in seats.items()}
     con.execute("UPDATE runs SET config_json = json_merge_patch(config_json, ?) WHERE run_id = ?",
