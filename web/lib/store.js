@@ -27,6 +27,7 @@ function shape(pending, queue, admin) {
   const state = { queued: queue.filter(q => q.status === 'queued' || q.status === 'running').map(q => ({ ...row(q), ...(q.status === 'running' ? { running: true } : {}) })),
     submitted: pending.map(r => ({ ...row(r), n: r.n, mine: r.mine === true })) };
   if (admin) {                                           // visitors are never told what was declined or what failed
+    for (const [i, q] of queue.filter(q => q.status === 'queued' || q.status === 'running').entries()) if (q.note) state.queued[i].note = String(q.note).slice(0, 400);   // why a run is being held
     state.rejected = queue.filter(q => q.status === 'rejected').map(row);
     state.failed = queue.filter(q => q.status === 'failed').map(q => ({ ...row(q), note: String(q.note || '').slice(0, 400) }));
   }

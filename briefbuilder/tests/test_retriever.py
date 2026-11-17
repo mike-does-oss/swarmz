@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
-from app.services.brief_v2.retriever import RetrievedDoc, is_live, retrieve, parse_iso
+import pytest
+
+from app.services.brief_v2.retriever import RetrievedDoc, SearchUnavailable, is_live, retrieve, parse_iso
 
 
 class FakeSearch:
@@ -162,3 +164,17 @@ def test_back_dated_build_still_discards_what_it_cannot_date():
     docs, discarded = retrieve(["price now"], FREEZE, NOW, search_client=search,
                                fetch_article=_fetcher(table), latest_value_queries=["price now"])
     assert docs == [] and discarded[0]["reason"] == "no_publication_time"
+
+
+def test_one_failed_search_is_passed_over_but_all_of_them_failing_stops_the_build():
+    class Flaky(FakeSearch):
+        def search(self, query, count=5, freshness=None):
+            if query.startswith("bad"):
+                raise RuntimeError("402 Payment Required")
+            return super().search(query, count, freshness)
+    search = Flaky({"q1": [{"url": "https://www.reuters.com/a", "title": "t", "page_age": None}]})
+    table = {"https://www.reuters.com/a": {"full_text": "Body.", "publication_time": "2026-07-01T00:00:00Z", "source_name": "Reuters"}}
+    docs, _ = retrieve(["bad1", "q1"], FREEZE, NOW, search_client=search, fetch_article=_fetcher(table))
+    assert len(docs) == 1
+    with pytest.raises(SearchUnavailable, match="402"):
+        retrieve(["bad1", "bad2"], FREEZE, NOW, search_client=search, fetch_article=_fetcher(table))

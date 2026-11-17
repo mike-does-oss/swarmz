@@ -28,6 +28,10 @@ from ...utils.logger import get_logger
 logger = get_logger('briefbuilder.services.retriever')
 
 
+class SearchUnavailable(Exception):
+    """Every search failed: the search provider is down, over its usage limit or refusing the key."""
+
+
 @dataclass
 class RetrievedDoc:
     url: str
@@ -105,11 +109,13 @@ def retrieve(
 
     # 1) Collect unique candidate URLs across all queries (first title/page_age wins).
     candidates: Dict[str, Dict[str, Any]] = {}
+    failures: List[str] = []
     for query in queries:
         try:
             results = search_client.search(query, count=count_per_query, freshness=freshness)
         except Exception as e:  # a failed search should not abort the whole run
             logger.error(f"search failed for {query!r}: {e}")
+            failures.append(f"{type(e).__name__}: {e}")
             continue
         for r in results:
             url = r.get('url')
@@ -118,6 +124,9 @@ def retrieve(
                                    'latest_value': False}
             if url and query in latest:
                 candidates[url]['latest_value'] = True
+
+    if queries and len(failures) == len(queries):   # not one search went through: that is the provider, not the question
+        raise SearchUnavailable(failures[-1])
 
     # 2) Fetch every unique URL concurrently (full-text fetch is the bottleneck;
     #    each URL is fetched exactly once).

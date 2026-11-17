@@ -63,6 +63,9 @@ class DecomposerOutput:
     # over the headings takes because of it (see drivers_weight)
     horizon_days: Optional[int] = None
     drivers_weight: int = 1
+    # why the model call failed, when it did: an empty plan from a provider that is down or out of
+    # credit is not the same thing as a question nothing can be searched for
+    error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -107,11 +110,12 @@ def build_prompt(qp, today: str = "") -> List[Dict[str, str]]:
 
 def decompose(qp, llm, today: str = "") -> DecomposerOutput:
     """today: the date of the build, so searches for the latest value name the right day."""
+    error = None
     try:
         response = llm.chat_json(build_prompt(qp, today))
     except Exception as e:
         logger.error(f"decomposer LLM call failed: {e}")
-        response = {}
+        response, error = {}, f"{type(e).__name__}: {e}"
     if not isinstance(response, dict):
         response = {}
 
@@ -134,4 +138,4 @@ def decompose(qp, llm, today: str = "") -> DecomposerOutput:
         logger.info(f"decomposer: dropped {len(dropped)} odds/market queries")
     days = horizon_days(qp, today) if today else None
     return DecomposerOutput(queries_by_category=by_category, dropped_odds_queries=dropped,
-                            horizon_days=days, drivers_weight=drivers_weight(days))
+                            horizon_days=days, drivers_weight=drivers_weight(days), error=error)

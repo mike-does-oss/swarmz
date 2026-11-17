@@ -54,6 +54,7 @@ def use_work_dir() -> None:
     w.mkdir(parents=True, exist_ok=True)
     os.environ["SWARMZ_DB_PATH"] = str(w / "swarmz.duckdb")
     os.environ["BRIEF_DATA_DIR"] = str(w / "briefbuilder")
+    os.environ["SWARMZ_REPORTS_DIR"] = str(w / "reports")   # the code folder is read-only on a cloud function
     os.environ.setdefault("HOME", "/tmp")       # DuckDB wants a home folder it can write to
 
 
@@ -282,6 +283,29 @@ def run_market(ticker: str, log=print, own: dict | None = None) -> str | None:
         return f"{type(e).__name__}: {str(e)[:300]}"
 
 
+PROVIDERS = {"planner": "The model that plans the searches", "search": "The search provider"}
+TROUBLE = (("credit balance is too low", "is out of credit"), ("usage limit", "has reached its usage limit"),
+           ("402", "has reached its usage limit or needs payment"), ("401", "refused the key"),
+           ("403", "refused the key"), ("429", "is rate-limiting"))
+
+
+def provider_trouble(why: str | None) -> str | None:
+    """A plain sentence when a run failed because a provider did (out of credit, over a usage limit, key
+    refused, down), else None. Such a run is not the question's fault, so it must not use up the queue."""
+    if not why:
+        return None
+    low = why.lower()
+    who, sep, detail = why.partition("provider_error:")[2].partition(":")
+    if sep:
+        name = PROVIDERS.get(who, "A provider")
+    elif "credit balance is too low" in low:
+        name, detail = "The forecasting model", why
+    else:
+        return None
+    what = next((say for mark, say in TROUBLE if mark in detail.lower()), "could not be reached")
+    return f"{name} {what}. This run is waiting and will be tried again on the next slot."
+
+
 def closed_reason(ticker: str, session=None, at=None) -> str | None:
     """Why a Kalshi market can no longer be forecast, or None if it still can. A market that has closed has
     its answer in the news, so a run on it is a paid forecast of something already known. Own questions
@@ -386,10 +410,16 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
                     live.close(why)
             except Exception as e:
                 log(f"live view not closed: {type(e).__name__}: {str(e)[:200]}")
-            pg.execute("update queue set status = %s, note = %s where id = %s", ["failed" if why else "done", why, ticker])
-            out["failed" if why else "ran"] = ticker
-            if why:
-                log(f"set aside {ticker}: {why}")
+            held = provider_trouble(why)
+            if held:                             # nothing wrong with the question: it keeps its place and runs when the provider is back
+                pg.execute("update queue set status = 'queued', ran_at = null, note = %s where id = %s", [held, ticker])
+                out["held"] = ticker
+                log(f"held {ticker}: {held} ({why})")
+            else:
+                pg.execute("update queue set status = %s, note = %s where id = %s", ["failed" if why else "done", why, ticker])
+                out["failed" if why else "ran"] = ticker
+                if why:
+                    log(f"set aside {ticker}: {why}")
             log(f"registry saved: {push(pg, db_path, briefs_dir())} bytes")   # before anything else can go wrong
 
         if run and settle and left() > 240:      # settle what has resolved, score it, and learn from it

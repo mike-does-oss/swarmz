@@ -7,13 +7,14 @@ snapshot + provenance + prediction row, written atomically. No simulation code
 is touched here.
 """
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
 from . import intake
 from .decomposer import decompose, DRIVERS, LATEST_VALUE
-from .retriever import retrieve, is_live
+from .retriever import retrieve, is_live, SearchUnavailable
 from .triage import triage
 from .claim_extractor import ClaimExtractionError, reading_problem
 from .assembler import assemble
@@ -33,6 +34,15 @@ from ...storage.brief_store import write_brief
 from ...storage.db import get_connection, insert_provenance, insert_prediction
 
 logger = get_logger('briefbuilder.services.pipeline')
+
+
+def provider_error(stage: str, message: str) -> str:
+    """Reject reason for a build that failed because a provider did (no credit, usage limit, bad key,
+    outage), not because of the question. The caller keeps such a question to try again later."""
+    text = re.sub(r"\s+", " ", message or "")
+    text = re.sub(r"\s*for url:.*|https?://\S+", "", text)     # a search URL carries the whole query
+    text = re.sub(r"\b(sk|key|tok)[-_][\w*.-]{6,}", "[key]", text)  # some providers echo part of the key
+    return f"provider_error:{stage}:{text.strip()[:160]}"
 
 
 @dataclass
@@ -104,14 +114,19 @@ class BriefPipeline:
                 del qs[:take]
         queries = queries[:self.max_queries]
         if not queries:
+            if decomposition.error:          # the model that plans the searches could not be reached or paid for
+                return self._reject(provider_error('planner', decomposition.error), now)
             return self._reject('empty_query_set', now)
 
-        docs, discarded = retrieve(
-            queries, now, now, search_client=self.search_client,
-            fetch_article=self.fetch_article, count_per_query=self.count_per_query,
-            freshness=freshness, live=is_live(now),
-            latest_value_queries=decomposition.queries_by_category.get(LATEST_VALUE, []),
-        )
+        try:
+            docs, discarded = retrieve(
+                queries, now, now, search_client=self.search_client,
+                fetch_article=self.fetch_article, count_per_query=self.count_per_query,
+                freshness=freshness, live=is_live(now),
+                latest_value_queries=decomposition.queries_by_category.get(LATEST_VALUE, []),
+            )
+        except SearchUnavailable as e:
+            return self._reject(provider_error('search', str(e)), now)
         # A brief with no claims has nothing in it to forecast from: stop before paying to write it.
         question = f"{qp.question_text}\nResolution criteria: {qp.resolution_criteria}"
         try:

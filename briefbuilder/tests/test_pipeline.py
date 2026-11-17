@@ -224,3 +224,25 @@ def test_a_slight_overrun_of_the_3000_word_target_is_kept(tmp_path):
     )
     result = p.build(MARKET, now=NOW)
     assert result.status == "frozen", result.reject_reason
+
+
+def test_a_planner_that_cannot_be_reached_is_named_as_the_provider_not_as_an_empty_plan(tmp_path):
+    class NoCredit:
+        def chat_json(self, messages):
+            raise RuntimeError("Error code: 400 - Your credit balance is too low to access the API")
+    p = _pipeline(tmp_path, FakeScrubberLLM(cleaned="x"))
+    p.decomposer_llm = NoCredit()
+    result = p.build(MARKET, now=NOW)
+    assert result.status == "rejected"
+    assert result.reject_reason.startswith("provider_error:planner:RuntimeError") and "credit balance" in result.reject_reason
+
+
+def test_a_search_provider_that_refuses_every_search_is_named(tmp_path):
+    class OverLimit:
+        def search(self, query, count=5, freshness=None):
+            raise RuntimeError("402 Client Error: Payment Required for url: https://api.search.example/res?q=" + query)
+    p = _pipeline(tmp_path, FakeScrubberLLM(cleaned="x"))
+    p.search_client = OverLimit()
+    result = p.build(MARKET, now=NOW)
+    assert result.status == "rejected"
+    assert result.reject_reason == "provider_error:search:RuntimeError: 402 Client Error: Payment Required"

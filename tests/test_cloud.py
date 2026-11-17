@@ -148,3 +148,26 @@ def test_an_own_question_or_an_unreachable_kalshi_does_not_stop_a_run():
             raise OSError("no network")
     assert cloud.closed_reason("q-0123456789abcd", Down()) is None
     assert cloud.closed_reason("KXA-26NOV10-B", Down()) is None
+
+
+def test_a_run_that_failed_because_a_provider_did_is_held_not_failed():
+    held = cloud.provider_trouble
+    assert "search provider has reached its usage limit" in held(
+        "brief rejected: provider_error:search:HTTPError: 402 Client Error: Payment Required for url:")
+    assert "plans the searches is out of credit" in held(
+        "brief rejected: provider_error:planner:BadRequestError: Your credit balance is too low to access the API")
+    assert "forecasting model is out of credit" in held("BadRequestError: Error code: 400 - Your credit balance is too low")
+    assert "could not be reached" in held("brief rejected: provider_error:search:ConnectionError: timed out")
+    # a fault of the question or the brief still fails the run
+    for why in (None, "brief rejected: empty_query_set", "brief rejected: no_claims:3_docs",
+                "brief rejected: word_count_out_of_range:3018", "run did not complete"):
+        assert held(why) is None
+
+
+def test_the_cloud_writes_reports_to_its_scratch_folder(tmp_path, monkeypatch):
+    for name in ("SWARMZ_DB_PATH", "BRIEF_DATA_DIR", "SWARMZ_REPORTS_DIR", "HOME"):
+        monkeypatch.setenv(name, "unset")
+    monkeypatch.setenv("SWARMZ_CLOUD_DIR", str(tmp_path / "work"))
+    cloud.use_work_dir()
+    import os
+    assert os.environ["SWARMZ_REPORTS_DIR"] == str(tmp_path / "work" / "reports")

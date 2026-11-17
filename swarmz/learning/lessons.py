@@ -123,7 +123,10 @@ def write_lessons_for_question(con, question_id: str, arm: str, as_of: datetime,
         merge_if_over_cap(con, inp["persona_id"], llm)
     con.execute("INSERT INTO learning_log VALUES (?, ?, 'lessons', ?)", [question_id, arm, now()])
     if review_path and review:
-        _append_review(con, review_path, question_id, arm, review)
+        try:                                     # the review file is for a person to read; the lessons do not depend on it
+            _append_review(con, review_path, question_id, arm, review)
+        except OSError:
+            pass
     return {"saved": saved, "rejected": rejected, "personas": len(inputs)}
 
 
