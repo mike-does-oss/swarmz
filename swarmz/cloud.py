@@ -66,6 +66,20 @@ def connect_pg():
     return psycopg.connect(url, autocommit=True)
 
 
+def alive(pg):
+    """This connection if it still answers, else a new one. The database drops a connection that sat idle
+    through a long step (a learning pass takes minutes), and what the step made must still be saved."""
+    try:
+        pg.execute("select 1")
+        return pg
+    except Exception:
+        try:
+            pg.close()
+        except Exception:
+            pass
+        return connect_pg()
+
+
 def ensure_schema(pg) -> None:
     pg.execute(SCHEMA)
 
@@ -410,6 +424,7 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
                     live.close(why)
             except Exception as e:
                 log(f"live view not closed: {type(e).__name__}: {str(e)[:200]}")
+            pg = alive(pg)
             held = provider_trouble(why)
             if held:                             # nothing wrong with the question: it keeps its place and runs when the provider is back
                 pg.execute("update queue set status = 'queued', ran_at = null, note = %s where id = %s", [held, ticker])
@@ -428,12 +443,15 @@ def tick(*, run: bool = True, settle: bool = True, budget_s: float = 780, only: 
                                ("learning", lambda: cli.learn_cmd(seed=0))):
                 try:                             # outcomes are saved even if learning from them then fails
                     step()
+                    pg = alive(pg)
                     log(f"{name} done; registry saved: {push(pg, db_path, briefs_dir())} bytes")
                 except Exception as e:
                     log(f"{name} failed: {type(e).__name__}: {str(e)[:300]}")
         if run:
+            pg = alive(pg)
             out["published"] = publish(pg, log)
         return out
     finally:
+        pg = alive(pg)
         unlock(pg, holder)
         pg.close()

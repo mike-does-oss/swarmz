@@ -171,3 +171,23 @@ def test_the_cloud_writes_reports_to_its_scratch_folder(tmp_path, monkeypatch):
     cloud.use_work_dir()
     import os
     assert os.environ["SWARMZ_REPORTS_DIR"] == str(tmp_path / "work" / "reports")
+
+
+def test_a_connection_that_dropped_during_a_long_step_is_replaced(monkeypatch):
+    class Dropped:
+        closed = False
+
+        def execute(self, sql, args=()):
+            raise RuntimeError("SSL connection has been closed unexpectedly")
+
+        def close(self):
+            self.closed = True
+
+    class Fine:
+        def execute(self, sql, args=()):
+            return None
+
+    fresh, good, dropped = Fine(), Fine(), Dropped()
+    monkeypatch.setattr(cloud, "connect_pg", lambda: fresh)
+    assert cloud.alive(good) is good            # a working connection is kept
+    assert cloud.alive(dropped) is fresh and dropped.closed
