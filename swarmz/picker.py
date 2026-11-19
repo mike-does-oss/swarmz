@@ -283,14 +283,18 @@ def build_brief(ticker: str, timeout: float = 1800, min_words: int | None = None
         if own:
             env["BRIEF_OWN_QUESTION"] = json.dumps({k: own[k] for k in ("text", "resolves", "criteria")})
         cmd = [str(BRIEF_BUILDER_PYTHON), str(BUILD_SCRIPT), ticker] + ([str(min_words)] if min_words else [])
-        proc = subprocess.run(cmd, cwd=BRIEF_BUILDER_DIR, env=env,
-                              capture_output=True, text=True, timeout=timeout)
-        lines = [l for l in proc.stdout.strip().splitlines() if l.startswith("{")]
-        try:
-            result = json.loads(lines[-1])
-        except (IndexError, json.JSONDecodeError):
-            result = {"ticker": ticker, "status": "error",
-                      "reject_reason": (proc.stderr or proc.stdout)[-800:] or f"exit {proc.returncode}"}
+        for attempt in (1, 2):
+            proc = subprocess.run(cmd, cwd=BRIEF_BUILDER_DIR, env=env,
+                                  capture_output=True, text=True, timeout=timeout)
+            lines = [l for l in proc.stdout.strip().splitlines() if l.startswith("{")]
+            try:
+                result = json.loads(lines[-1])
+            except (IndexError, json.JSONDecodeError):
+                result = {"ticker": ticker, "status": "error",
+                          "reject_reason": (proc.stderr or proc.stdout)[-800:] or f"exit {proc.returncode}"}
+                if proc.returncode < 0 and attempt == 1:     # killed by a signal: a crash in native code, not a
+                    continue                                 # verdict on the question. One more try, then give up.
+            break
         with usage.track() as t:
             usage.merge_file(usage_file)
     return result, t

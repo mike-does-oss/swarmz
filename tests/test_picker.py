@@ -76,3 +76,29 @@ def test_siblings_of_registered_questions_are_excluded():
     got = picker.candidates(ms, min_hours=4, max_hours=36, min_volume=1000, exclude=registered, exclude_events=ev)
     assert [c.ticker for c in got] == ["KXCPI-26OCT-T0.2"]
     assert picker.event_of("KXDJI-05NOV26-GE52800P00") == "KXDJI-05NOV26"
+
+
+def test_a_brief_build_killed_by_a_crash_is_tried_once_more(monkeypatch, tmp_path):
+    import subprocess
+    from types import SimpleNamespace
+    from swarmz import picker
+    exe = tmp_path / "python"
+    exe.write_text("")
+    monkeypatch.setattr(picker, "BRIEF_BUILDER_PYTHON", exe)
+    monkeypatch.setattr(picker, "builder_env", lambda: {"PYTHONPATH": "x"})
+    answers = [SimpleNamespace(returncode=-6, stdout="", stderr="double free or corruption (out)\n"),
+               SimpleNamespace(returncode=0, stdout='{"ticker": "KXA-1", "status": "frozen"}\n', stderr="")]
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (calls.append(1), answers[len(calls) - 1])[1])
+    result, _ = picker.build_brief("KXA-1")
+    assert result["status"] == "frozen" and len(calls) == 2
+
+    calls.clear()
+    answers[:] = [SimpleNamespace(returncode=-6, stdout="", stderr="double free or corruption (out)\n")] * 2
+    result, _ = picker.build_brief("KXA-1")
+    assert result["status"] == "error" and "double free" in result["reject_reason"] and len(calls) == 2
+
+    calls.clear()
+    answers[:] = [SimpleNamespace(returncode=1, stdout="", stderr="boom")]
+    result, _ = picker.build_brief("KXA-1")
+    assert result["status"] == "error" and len(calls) == 1      # an ordinary error is not retried

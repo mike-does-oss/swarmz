@@ -5,12 +5,17 @@ Uses trafilatura to download and extract the main body text plus publication-dat
 metadata. The download and extraction steps are injectable so tests run offline.
 """
 
+import threading
 from typing import Optional, Callable, Dict, Any
 from urllib.parse import urlparse
 
 from ...utils.logger import get_logger
 
 logger = get_logger('briefbuilder.services.article_fetcher')
+
+# Pages are downloaded many at a time, but their text is extracted one at a time. The HTML parser under the
+# extractor has crashed the whole build ("double free or corruption") when several threads were inside it.
+_EXTRACT_LOCK = threading.Lock()
 
 
 def _default_fetch(url: str) -> Optional[str]:
@@ -54,7 +59,8 @@ def fetch_article(
     if not html:
         logger.info(f"fetch_article: download failed for {url}")
         return None
-    data = extract_fn(html)
+    with _EXTRACT_LOCK:
+        data = extract_fn(html)
     if not data or not data.get('text'):
         logger.info(f"fetch_article: no extractable text for {url}")
         return None

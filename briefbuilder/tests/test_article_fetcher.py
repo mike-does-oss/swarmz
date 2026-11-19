@@ -37,3 +37,25 @@ def test_fetch_article_source_name_falls_back_to_domain():
         extract_fn=lambda h: {"text": "Body.", "date": "2026-07-01", "sitename": None},
     )
     assert art["source_name"] == "example-news.com"
+
+
+def test_text_is_extracted_one_page_at_a_time():
+    import threading, time
+    from concurrent.futures import ThreadPoolExecutor
+    inside, most = [0], [0]
+    guard = threading.Lock()
+
+    def extract(html):
+        with guard:
+            inside[0] += 1
+            most[0] = max(most[0], inside[0])
+        time.sleep(0.01)
+        with guard:
+            inside[0] -= 1
+        return {'text': 'body', 'date': None, 'sitename': 'x'}
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        out = list(ex.map(lambda u: fetch_article(u, fetch_fn=lambda _: '<html/>', extract_fn=extract),
+                          [f'https://example.com/{i}' for i in range(16)]))
+    assert all(o and o['full_text'] == 'body' for o in out)
+    assert most[0] == 1
